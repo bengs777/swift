@@ -18,6 +18,8 @@ export class UserService {
         email,
         name,
         image,
+        balance: 5000,
+        welcomeBonusGrantedAt: new Date(),
       },
     })
   }
@@ -29,6 +31,8 @@ export class UserService {
         email,
         name: data.name ?? null,
         image: data.image ?? null,
+        balance: 5000,
+        welcomeBonusGrantedAt: new Date(),
       },
       update: {
         name: data.name || undefined,
@@ -80,42 +84,66 @@ export class UserService {
     image: string | null,
     passwordHash?: string
   ) {
-    const user = await prisma.user.create({
-      data: {
-        email,
-        name,
-        image,
-        passwordHash,
-      },
-    })
+    return prisma.$transaction(async (tx) => {
+      const welcomeBonus = 5000
 
-    // Create default workspace
-    const workspace = await prisma.workspace.create({
-      data: {
-        name: `${name || 'My'} Workspace`,
-        slug: `workspace-${user.id.slice(0, 8)}`,
-        createdBy: user.id,
-      },
-    })
+      const user = await tx.user.create({
+        data: {
+          email,
+          name,
+          image,
+          passwordHash,
+          balance: welcomeBonus,
+          welcomeBonusGrantedAt: new Date(),
+        },
+      })
 
-    // Add user as admin to workspace
-    await prisma.workspaceMember.create({
-      data: {
-        workspaceId: workspace.id,
-        userId: user.id,
-        role: 'admin',
-      },
-    })
+      await tx.billingTransaction.create({
+        data: {
+          userId: user.id,
+          kind: "welcome_bonus",
+          direction: "credit",
+          amount: welcomeBonus,
+          balanceBefore: 0,
+          balanceAfter: welcomeBonus,
+          reference: `welcome-bonus:${user.id}`,
+          provider: "internal",
+          description: "One-time welcome balance for new account",
+          metadata: JSON.stringify({
+            source: "signup",
+            amount: welcomeBonus,
+          }),
+        },
+      })
 
-    // Create default subscription
-    await prisma.subscription.create({
-      data: {
-        workspaceId: workspace.id,
-        plan: 'free',
-      },
-    })
+      // Create default workspace
+      const workspace = await tx.workspace.create({
+        data: {
+          name: `${name || 'My'} Workspace`,
+          slug: `workspace-${user.id.slice(0, 8)}`,
+          createdBy: user.id,
+        },
+      })
 
-    return user
+      // Add user as admin to workspace
+      await tx.workspaceMember.create({
+        data: {
+          workspaceId: workspace.id,
+          userId: user.id,
+          role: 'admin',
+        },
+      })
+
+      // Create default subscription
+      await tx.subscription.create({
+        data: {
+          workspaceId: workspace.id,
+          plan: 'free',
+        },
+      })
+
+      return user
+    })
   }
 
   static async createUserWithWorkspaceIfMissing(

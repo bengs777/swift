@@ -28,7 +28,9 @@ type ViewportSize = "mobile" | "tablet" | "desktop"
 
 interface PreviewPanelProps {
   files: GeneratedFile[]
+  previewFiles?: GeneratedFile[] | null
   currentVersion: number
+  activeFileIndex: number
   onUpdateFile?: (index: number, content: string) => void
   onReplaceFiles?: (files: GeneratedFile[]) => void
   onSaveFiles?: () => void
@@ -36,11 +38,14 @@ interface PreviewPanelProps {
   isDirty?: boolean
   activeTab?: "preview" | "code"
   onTabChange?: (tab: "preview" | "code") => void
+  onPreviewErrorChange?: (error: string | null) => void
 }
 
 export function PreviewPanel({
   files,
+  previewFiles = null,
   currentVersion,
+  activeFileIndex,
   onUpdateFile,
   onReplaceFiles,
   onSaveFiles,
@@ -48,6 +53,7 @@ export function PreviewPanel({
   isDirty = false,
   activeTab: activeTabProp,
   onTabChange,
+  onPreviewErrorChange,
 }: PreviewPanelProps) {
   const [internalActiveTab, setInternalActiveTab] = useState<"preview" | "code">("preview")
   const [viewport, setViewport] = useState<ViewportSize>("desktop")
@@ -68,9 +74,13 @@ export function PreviewPanel({
     setPreviewError(null)
   }, [files, currentVersion])
 
+  useEffect(() => {
+    onPreviewErrorChange?.(previewError)
+  }, [onPreviewErrorChange, previewError])
+
   const handleCopy = () => {
-    if (files[activeFile]) {
-      navigator.clipboard.writeText(files[activeFile].content)
+    if (files[activeFileIndex]) {
+      navigator.clipboard.writeText(files[activeFileIndex].content)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
@@ -86,7 +96,7 @@ export function PreviewPanel({
   }, [])
 
   const handleCodeChange = (content: string) => {
-    onUpdateFile?.(activeFile, content)
+    onUpdateFile?.(activeFileIndex, content)
   }
 
   const handleToggleFolder = (folderPath: string) => {
@@ -177,9 +187,18 @@ export function PreviewPanel({
             </TabsList>
           </Tabs>
           {previewError && activeTab === "preview" && (
-            <div className="flex items-center gap-1 text-xs text-destructive">
-              <AlertCircle className="h-3.5 w-3.5" />
-              Error in preview
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5" />
+                <span className="truncate max-w-xs" title={previewError}>Error in preview</span>
+              </div>
+              <button
+                onClick={() => window.alert(previewError)}
+                className="text-xs text-destructive underline"
+                title="View preview error details"
+              >
+                View details
+              </button>
             </div>
           )}
         </div>
@@ -232,26 +251,6 @@ export function PreviewPanel({
 
         {activeTab === "code" && files.length > 0 && (
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-2"
-              onClick={handleCreateFile}
-              disabled={!onReplaceFiles}
-            >
-              <FilePlus2 className="h-4 w-4" />
-              New File
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-2"
-              onClick={handleDeleteActiveFile}
-              disabled={!onReplaceFiles || files.length === 0}
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete File
-            </Button>
             {onSaveFiles && (
               <Button
                 size="sm"
@@ -292,7 +291,7 @@ export function PreviewPanel({
             {files.length > 0 ? (
               <SandboxPreview 
                 key={previewKey}
-                files={files} 
+                files={previewFiles ?? buildBrowserPreviewFiles(files)} 
                 onError={handlePreviewError}
               />
             ) : (
@@ -303,34 +302,13 @@ export function PreviewPanel({
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {files.length > 0 ? (
-            <>
-              {/* File tabs */}
-              <div className="w-64 shrink-0 border-r border-border bg-background">
-                <ScrollArea className="h-full">
-                  <div className="p-2">
-                    {fileTree.map((node) => (
-                      <TreeNode
-                        key={node.path}
-                        node={node}
-                        activeFileIndex={activeFile}
-                        files={files}
-                        expandedFolders={expandedFolders}
-                        onToggleFolder={handleToggleFolder}
-                        onSelectFile={setActiveFile}
-                      />
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-              {/* Code view */}
-              <div className="flex-1 overflow-auto bg-background">
-                <CodeEditor
-                  filePath={files[activeFile]?.path || ""}
-                  code={files[activeFile]?.content || ""}
-                  onChange={handleCodeChange}
-                />
-              </div>
-            </>
+            <div className="flex-1 overflow-auto bg-background">
+              <CodeEditor
+                filePath={files[activeFileIndex]?.path || ""}
+                code={files[activeFileIndex]?.content || ""}
+                onChange={handleCodeChange}
+              />
+            </div>
           ) : (
             <EmptyCode />
           )}
@@ -358,7 +336,7 @@ function EmptyCode() {
       <FileCode className="mb-4 h-12 w-12 text-muted-foreground" />
       <h3 className="font-semibold text-foreground">No code generated</h3>
       <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-        Code will appear here after generation
+        Select a file from the explorer to edit it.
       </p>
     </div>
   )
@@ -594,4 +572,176 @@ function toPascalCase(value: string) {
 function toCamelCase(value: string) {
   const pascal = toPascalCase(value)
   return pascal ? pascal.charAt(0).toLowerCase() + pascal.slice(1) : ""
+}
+
+function buildBrowserPreviewFiles(files: GeneratedFile[]) {
+  const previewLookup = new Map(
+    files.map((file) => [normalizePreviewPath(file.path), file] as const)
+  )
+
+  return files.map((file) => {
+    const previewVariant = findPreviewVariant(file.path, previewLookup)
+    const sourceContent = String(previewVariant?.content ?? file.content ?? "")
+
+    if (isPreviewJsonFile(file.path)) {
+      try {
+        const parsed = JSON.parse(sourceContent || "{}")
+        return {
+          ...file,
+          content: `const __default_export = ${JSON.stringify(parsed, null, 2)}\n`,
+        }
+      } catch {
+        return {
+          ...file,
+          content: `const __default_export = {}\n`,
+        }
+      }
+    }
+
+    if (isPreviewAssetFile(file.path)) {
+      return {
+        ...file,
+        content: `const __default_export = {}\n`,
+      }
+    }
+
+    if (!isPreviewExecutableFile(file.path)) {
+      return file
+    }
+
+    if (!needsBrowserSafeRewrite(sourceContent)) {
+      return {
+        ...file,
+        content: sourceContent,
+      }
+    }
+
+    const browserSafeContent = makeBrowserSafePreviewContent(sourceContent)
+
+    if (needsBrowserSafeRewrite(browserSafeContent) || /\bawait\b/.test(browserSafeContent)) {
+      return {
+        ...file,
+        content: buildPreviewFallbackModule(file.path, "Preview disabled for server-only generated code."),
+      }
+    }
+
+    return {
+      ...file,
+      content: browserSafeContent,
+    }
+  })
+}
+
+function findPreviewVariant(path: string, previewLookup: Map<string, GeneratedFile>) {
+  const normalized = normalizePreviewPath(path)
+  const candidates = [
+    normalized.replace(/(\.[^/.]+)$/, ".preview$1"),
+    `preview/${normalized}`,
+    normalized.replace(/^app\//, "preview/app/"),
+  ]
+
+  for (const candidate of candidates) {
+    const found = previewLookup.get(candidate)
+    if (found) {
+      return found
+    }
+  }
+
+  return null
+}
+
+function normalizePreviewPath(path: string) {
+  return path.replace(/\\/g, "/").toLowerCase()
+}
+
+function isPreviewJsonFile(path: string) {
+  return /\.json$/i.test(path)
+}
+
+function isPreviewAssetFile(path: string) {
+  return /\.(css|scss|sass|less|md|env|prisma|html|txt|csv|yml|yaml|svg|png|jpe?g|gif|webp|avif|ico|bmp|mp4|webm|mp3|wav|ogg|woff2?|ttf|otf|lock|toml|ini|xml|pdf|webmanifest|manifest|d\.ts|d\.mts|d\.cts)$/i.test(path)
+}
+
+function isPreviewExecutableFile(path: string) {
+  return /\.(tsx?|jsx?|mjs|cjs)$/i.test(path)
+}
+
+function needsBrowserSafeRewrite(content: string) {
+  return /export\s+default\s+async|export\s+default\s+async\s*\(|\basync\s+function\b|@prisma\/client|prisma|next\/headers|next\/cookies|@\/lib\/db|node:fs|node:path|fs\b|path\b|process\.env|generateStaticParams|generateMetadata|getServerSideProps|getStaticProps|getInitialProps/i.test(content)
+}
+
+function buildPreviewFallbackModule(filePath: string, detail: string) {
+  return `export default function PreviewFallback() {
+  return (
+    <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-dashed border-border bg-background p-6 text-center">
+      <div className="max-w-xl space-y-2">
+        <h2 className="text-base font-semibold text-foreground">Preview disabled for ${JSON.stringify(filePath)}</h2>
+        <p className="text-sm text-muted-foreground">${JSON.stringify(detail)}</p>
+      </div>
+    </div>
+  )
+}
+`
+}
+
+function makeBrowserSafePreviewContent(content: string) {
+  let s = String(content)
+
+  const previewMockObject = `({
+    id: "preview",
+    name: "Preview item",
+    title: "Preview item",
+    slug: "preview-item",
+    description: "Preview data generated for browser sandbox.",
+    content: "Preview data",
+    image: "/placeholder.svg",
+    price: 0,
+    amount: 0,
+    value: 0,
+    trend: "0%",
+    features: [],
+    items: [],
+    ingredients: [],
+    reviews: [],
+    testimonials: [],
+    gallery: [],
+    beforeAfter: [],
+    cta: { label: "Preview CTA", href: "#" },
+  })`
+
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*fs[^'"]*['"];?\s*/gi, "")
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*path[^'"]*['"];?\s*/gi, "")
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*prisma[^'"]*['"];?\s*/gi, "")
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*@prisma\/client[^'"]*['"];?\s*/gi, "")
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*node:fs[^'"]*['"];?\s*/gi, "")
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*node:path[^'"]*['"];?\s*/gi, "")
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*next\/headers[^'"]*['"];?\s*/gi, "")
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*next\/cookies[^'"]*['"];?\s*/gi, "")
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*@\/lib\/db[^'"]*['"];?\s*/gi, "")
+
+  s = s.replace(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+prisma\.[A-Za-z0-9_$]+\.(findFirst|findUnique|findMany|count|aggregate)\([\s\S]*?\)\s*;?/g,
+    (_full, bindingName: string, method: string) => {
+      if (method === "findMany") {
+        return `const ${bindingName} = [];`
+      }
+
+      if (method === "count") {
+        return `const ${bindingName} = 0;`
+      }
+
+      return `const ${bindingName} = ${previewMockObject};`
+    }
+  )
+
+  s = s.replace(/export\s+async\s+function\s+(getServerSideProps|getStaticProps|getInitialProps|generateStaticParams|generateMetadata)\s*\([\s\S]*?\)\s*\{[\s\S]*?\}\s*/gi, "")
+  s = s.replace(/export\s+const\s+(dynamic|revalidate|runtime)\s*=\s*[^;\n]+;?\s*/gi, "")
+  s = s.replace(/export\s+default\s+async\s+function/gi, "export default function")
+  s = s.replace(/export\s+default\s+async\s*\(/gi, "export default (")
+  s = s.replace(/\basync\s+(function\s+[A-Za-z0-9_$]+\s*\()/gi, "$1")
+  s = s.replace(/\bawait\s+(\([^\)\n]+\)|[^\s;\n]+)/g, "null")
+  s = s.replace(/new\s+Promise\s*\([\s\S]*?\)/g, "null")
+  s = s.replace(/Promise\.[A-Za-z0-9_$]+\s*\(/g, "/*Promise*/ (function(){return Promise})(")
+  s = s.replace(/\bprocess\.env\.[A-Za-z0-9_]+/g, "undefined")
+
+  return s
 }

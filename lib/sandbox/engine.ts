@@ -34,395 +34,303 @@ export function generateSandboxHtml(
     return generateEmptyPreview()
   }
 
-  // Transform the React code for browser execution
-  const transformedCode = transformReactCode(mainFile.content, files)
+  // Transform the React code for browser execution (bundle modules + main)
+  const transformedCode = transformReactCode(mainFile, files)
 
-  return `
-<!DOCTYPE html>
+  // We'll compile the generated code inside the preview iframe using Babel at
+  // runtime. The transformed code may contain JSX and module-registry wrappers
+  // produced earlier by `transformReactCode`.
+  // To avoid prematurely closing the inline <script> tag in the generated HTML
+  // we must escape occurrences like </script> and HTML comments.
+  const userCode = JSON.stringify(String(transformedCode || ""))
+    .replace(/<\/script>/gi, '<\\/script>')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/<\/style>/gi, '<\\/style>')
+
+  return `<!doctype html>
 <html lang="en" class="${mergedConfig.theme}">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Preview</title>
-  
-  <!-- Tailwind CSS -->
-  ${mergedConfig.tailwindCdn ? '<script src="https://cdn.tailwindcss.com"></script>' : ''}
-  
-  <!-- Tailwind Config -->
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            background: 'var(--background)',
-            foreground: 'var(--foreground)',
-            card: 'var(--card)',
-            'card-foreground': 'var(--card-foreground)',
-            primary: 'var(--primary)',
-            'primary-foreground': 'var(--primary-foreground)',
-            secondary: 'var(--secondary)',
-            'secondary-foreground': 'var(--secondary-foreground)',
-            muted: 'var(--muted)',
-            'muted-foreground': 'var(--muted-foreground)',
-            accent: 'var(--accent)',
-            'accent-foreground': 'var(--accent-foreground)',
-            destructive: 'var(--destructive)',
-            'destructive-foreground': 'var(--destructive-foreground)',
-            border: 'var(--border)',
-            input: 'var(--input)',
-            ring: 'var(--ring)',
-          },
-          borderRadius: {
-            lg: 'var(--radius)',
-            md: 'calc(var(--radius) - 2px)',
-            sm: 'calc(var(--radius) - 4px)',
-          }
-        }
-      }
-    }
-  </script>
-  
-  <!-- CSS Variables -->
-  <style>
-    :root {
-      --background: #0a0a0a;
-      --foreground: #fafafa;
-      --card: #141414;
-      --card-foreground: #fafafa;
-      --primary: #fafafa;
-      --primary-foreground: #0a0a0a;
-      --secondary: #1f1f1f;
-      --secondary-foreground: #fafafa;
-      --muted: #262626;
-      --muted-foreground: #a3a3a3;
-      --accent: #10b981;
-      --accent-foreground: #fafafa;
-      --destructive: #ef4444;
-      --destructive-foreground: #fafafa;
-      --border: #262626;
-      --input: #1f1f1f;
-      --ring: #525252;
-      --radius: 0.5rem;
-    }
-    
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    
-    body {
-      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-      background-color: var(--background);
-      color: var(--foreground);
-      min-height: 100vh;
-    }
-    
-    /* Button styles */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0.5rem 1rem;
-      border-radius: var(--radius);
-      font-size: 0.875rem;
-      font-weight: 500;
-      transition: all 0.2s;
-      cursor: pointer;
-      border: none;
-    }
-    
-    .btn-primary {
-      background-color: var(--primary);
-      color: var(--primary-foreground);
-    }
-    
-    .btn-primary:hover {
-      opacity: 0.9;
-    }
-    
-    .btn-secondary {
-      background-color: var(--secondary);
-      color: var(--secondary-foreground);
-    }
-    
-    .btn-secondary:hover {
-      background-color: var(--muted);
-    }
-    
-    /* Card styles */
-    .card {
-      background-color: var(--card);
-      color: var(--card-foreground);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-    }
-    
-    /* Input styles */
-    input, textarea {
-      background-color: var(--input);
-      color: var(--foreground);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 0.5rem 0.75rem;
-      font-size: 0.875rem;
-    }
-    
-    input:focus, textarea:focus {
-      outline: 2px solid var(--ring);
-      outline-offset: 2px;
-    }
-  </style>
-  
-  <!-- React -->
-  <script crossorigin src="https://unpkg.com/react@${mergedConfig.reactVersion}/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@${mergedConfig.reactVersion}/umd/react-dom.development.js"></script>
-  
-  <!-- Babel for JSX -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>window.__sw_preview_report_error=function(m,s){try{window.parent.postMessage({type:'swift-preview-error',message:m,source:s||location.href},'*')}catch(e){}}</script>
+  ${mergedConfig.tailwindCdn ? '<script src="https://cdn.tailwindcss.com" onerror="window.__sw_preview_report_error(\'Failed to load Tailwind CDN\', this.src)"></script>' : ''}
+  <script crossorigin src="https://unpkg.com/react@${mergedConfig.reactVersion}/umd/react.development.js" onerror="window.__sw_preview_report_error('Failed to load React', this.src)"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@${mergedConfig.reactVersion}/umd/react-dom.development.js" onerror="window.__sw_preview_report_error('Failed to load ReactDOM', this.src)"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js" onerror="window.__sw_preview_report_error('Failed to load Babel', this.src)"></script>
 </head>
 <body>
   <div id="root"></div>
-  
-  <script type="text/babel">
-    const { useState, useEffect, useRef, useCallback, useMemo } = React;
-    
-    // Simple UI Components
-    function Button({ children, variant = "primary", className = "", onClick, disabled, ...props }) {
-      const variants = {
-        primary: "bg-primary text-primary-foreground hover:opacity-90",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-muted",
-        outline: "border border-border bg-transparent hover:bg-secondary",
-        ghost: "bg-transparent hover:bg-secondary",
-        destructive: "bg-destructive text-destructive-foreground hover:opacity-90",
-      };
-      
-      return (
-        <button
-          className={\`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed \${variants[variant] || variants.primary} \${className}\`}
-          onClick={onClick}
-          disabled={disabled}
-          {...props}
-        >
-          {children}
-        </button>
-      );
-    }
-    
-    function Input({ className = "", ...props }) {
-      return (
-        <input
-          className={\`flex h-10 w-full rounded-md border border-border bg-input px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 \${className}\`}
-          {...props}
-        />
-      );
-    }
-    
-    function Textarea({ className = "", ...props }) {
-      return (
-        <textarea
-          className={\`flex min-h-[80px] w-full rounded-md border border-border bg-input px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 \${className}\`}
-          {...props}
-        />
-      );
-    }
-    
-    function Card({ children, className = "", ...props }) {
-      return (
-        <div className={\`rounded-lg border border-border bg-card text-card-foreground shadow-sm \${className}\`} {...props}>
-          {children}
-        </div>
-      );
-    }
-    
-    function CardHeader({ children, className = "", ...props }) {
-      return (
-        <div className={\`flex flex-col space-y-1.5 p-6 \${className}\`} {...props}>
-          {children}
-        </div>
-      );
-    }
-    
-    function CardTitle({ children, className = "", ...props }) {
-      return (
-        <h3 className={\`text-2xl font-semibold leading-none tracking-tight \${className}\`} {...props}>
-          {children}
-        </h3>
-      );
-    }
-    
-    function CardDescription({ children, className = "", ...props }) {
-      return (
-        <p className={\`text-sm text-muted-foreground \${className}\`} {...props}>
-          {children}
-        </p>
-      );
-    }
-    
-    function CardContent({ children, className = "", ...props }) {
-      return (
-        <div className={\`p-6 pt-0 \${className}\`} {...props}>
-          {children}
-        </div>
-      );
-    }
-    
-    function CardFooter({ children, className = "", ...props }) {
-      return (
-        <div className={\`flex items-center p-6 pt-0 \${className}\`} {...props}>
-          {children}
-        </div>
-      );
-    }
-    
-    function Badge({ children, variant = "default", className = "", ...props }) {
-      const variants = {
-        default: "bg-primary text-primary-foreground",
-        secondary: "bg-secondary text-secondary-foreground",
-        outline: "border border-border text-foreground",
-        destructive: "bg-destructive text-destructive-foreground",
-      };
-      
-      return (
-        <div
-          className={\`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors \${variants[variant] || variants.default} \${className}\`}
-          {...props}
-        >
-          {children}
-        </div>
-      );
-    }
 
-    function __swiftMissingComponent(name) {
-      return function MissingComponent({ children, ...props }) {
-        return (
-          <div
-            className="rounded-md border border-dashed border-border bg-secondary/50 p-2 text-xs text-muted-foreground"
-            data-swift-missing={name}
-            {...props}
-          >
-            {children ?? \`[missing component: \${name}]\`}
-          </div>
-        );
-      };
-    }
-
-    function __swiftNoopFunction() {
-      return undefined;
-    }
-
-    function __swiftNamespace(source) {
-      return new Proxy(
-        {},
-        {
-          get(_target, key) {
-            const name = String(key);
-            return __swiftResolve(name, name, source);
-          },
+  <script>
+    (function(){
+      // Runtime helpers and builtins used by transformed code
+      function __swiftNoopFunction(){ return undefined }
+      function __swiftMissingComponent(name){
+        return function MissingComponent(props){
+          props = props || {}
+          const children = props.children != null ? props.children : ('[missing component: ' + name + ']')
+          const rest = Object.assign({}, props)
+          delete rest.children
+          const cls = 'rounded-md border border-dashed border-border bg-secondary/50 p-2 text-xs text-muted-foreground'
+          return React.createElement('div', Object.assign({ className: cls, ['data-swift-missing']: name }, rest), children)
         }
-      );
-    }
-
-    function __swiftResolve(importedName, localName, source) {
-      const name = localName || importedName;
-      const builtins = {
-        React,
-        useState: React.useState,
-        useEffect: React.useEffect,
-        useRef: React.useRef,
-        useCallback: React.useCallback,
-        useMemo: React.useMemo,
-        useReducer: React.useReducer,
-        useContext: React.useContext,
-        useLayoutEffect: React.useLayoutEffect,
-        useId: React.useId,
-        useTransition: React.useTransition,
-        useDeferredValue: React.useDeferredValue,
-        Button,
-        Input,
-        Textarea,
-        Card,
-        CardHeader,
-        CardTitle,
-        CardDescription,
-        CardContent,
-        CardFooter,
-        Badge,
-        Link: ({ children, href = "#", ...props }) => (
-          <a href={href} {...props}>
-            {children}
-          </a>
-        ),
-        Image: ({ alt = "", ...props }) => <img alt={alt} {...props} />,
-        useRouter: () => ({
-          push: () => {},
-          replace: () => {},
-          back: () => {},
-          prefetch: async () => {},
-        }),
-        usePathname: () => "/",
-        useSearchParams: () => new URLSearchParams(),
-      };
-
-      if (name in builtins) {
-        return builtins[name];
       }
 
-      if (importedName in builtins) {
-        return builtins[importedName];
+      function __swiftNamespace(source){
+        return new Proxy({}, { get(_t, key){ const name = String(key); return __swiftResolve(name,name,source) } })
       }
 
-      if (name && /^[A-Z]/.test(name)) {
-        return __swiftMissingComponent(name);
+      function __swiftResolve(importedName, localName, source){
+        const name = localName || importedName
+        try{
+          const s0 = String(source || '')
+          const s1 = s0.replace(/\.(tsx|ts|jsx|js)$/, '')
+          const s2 = s1.replace(/^@\//, '')
+          const candidates = [s0,s1,s2,'@/'+s2,'./'+s2,'/'+s2,s2]
+          if (typeof window !== 'undefined' && window.__sw_modules){
+            for(const k of candidates){
+              const mod = window.__sw_modules[k]
+              if (mod){
+                if (importedName && Object.prototype.hasOwnProperty.call(mod, importedName)) return mod[importedName]
+                if (localName && Object.prototype.hasOwnProperty.call(mod, localName)) return mod[localName]
+                if (Object.prototype.hasOwnProperty.call(mod, 'default')) return mod.default
+              }
+            }
+          }
+        }catch(e){}
+
+        const builtins = {
+          React,
+          useState: React.useState,
+          useEffect: React.useEffect,
+          useRef: React.useRef,
+          useCallback: React.useCallback,
+          useMemo: React.useMemo,
+          useReducer: React.useReducer,
+          useContext: React.useContext,
+          useLayoutEffect: React.useLayoutEffect,
+          useId: React.useId,
+          useTransition: React.useTransition,
+          useDeferredValue: React.useDeferredValue,
+          Button: function Button(props){ return React.createElement('button', props, props && props.children) },
+          Input: function Input(props){ return React.createElement('input', props) },
+          Textarea: function Textarea(props){ return React.createElement('textarea', props) },
+          Card: function Card(props){ return React.createElement('div', props, props && props.children) },
+          CardHeader: function CardHeader(props){ return React.createElement('div', props, props && props.children) },
+          CardTitle: function CardTitle(props){ return React.createElement('h3', props, props && props.children) },
+          CardDescription: function CardDescription(props){ return React.createElement('p', props, props && props.children) },
+          CardContent: function CardContent(props){ return React.createElement('div', props, props && props.children) },
+          CardFooter: function CardFooter(props){ return React.createElement('div', props, props && props.children) },
+          Badge: function Badge(props){ return React.createElement('div', props, props && props.children) },
+          Link: function Link(props){ return React.createElement('a', Object.assign({ href: props && props.href || '#' }, props), props && props.children) },
+          Image: function Image(props){ return React.createElement('img', Object.assign({ alt: props && props.alt || '' }, props)) },
+          useRouter: function(){ return { push: function(){}, replace:function(){}, back:function(){}, prefetch: async function(){} } },
+          usePathname: function(){ return '/' },
+          useSearchParams: function(){ return new URLSearchParams() }
+        }
+
+        if (name in builtins) return builtins[name]
+        if (importedName in builtins) return builtins[importedName]
+        if (name && /^[A-Z]/.test(name)) return __swiftMissingComponent(name)
+        return __swiftNoopFunction
       }
 
-      return __swiftNoopFunction;
-    }
-    
-    // User's Generated Component
-    ${transformedCode}
-    
-    // Render
-    const rootElement = document.getElementById('root');
-    const root = ReactDOM.createRoot(rootElement);
-    function __swiftRenderRuntimeFallback(errorMessage) {
-      root.render(
-        <div className="min-h-screen bg-background p-6 text-foreground">
-          <div className="mx-auto max-w-3xl rounded-xl border border-border bg-card p-5">
-            <h2 className="text-lg font-semibold">Preview fallback mode</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Komponen berhasil dimuat sebagian, tapi ada error saat render.
-            </p>
-            <pre className="mt-4 overflow-x-auto rounded-md bg-secondary p-3 text-xs text-muted-foreground">
-{String(errorMessage || "Unknown preview runtime error")}
-            </pre>
-          </div>
-        </div>
-      );
-    }
+      function __swiftRenderRuntimeFallback(errorMessage){
+        try{
+          const rootElement = document.getElementById('root')
+          const root = ReactDOM.createRoot(rootElement)
+          root.render(React.createElement('div', { className: 'min-h-screen bg-background p-6 text-foreground' }, React.createElement('div', { className: 'mx-auto max-w-3xl rounded-xl border border-border bg-card p-5' }, React.createElement('h2', { className: 'text-lg font-semibold' }, 'Preview fallback mode'), React.createElement('p', { className: 'mt-2 text-sm text-muted-foreground' }, 'Komponen berhasil dimuat sebagian, tapi ada error saat render.'), React.createElement('pre', { className: 'mt-4 overflow-x-auto rounded-md bg-secondary p-3 text-xs text-muted-foreground' }, String(errorMessage || 'Unknown preview runtime error')))))
+        }catch(e){}
+      }
 
-    window.addEventListener("error", (event) => {
-      event.preventDefault();
-      __swiftRenderRuntimeFallback(event.message || "Unhandled preview error");
-    });
+      window.addEventListener('error', function(event){
+        try{ window.parent?.postMessage({ type: 'swift-preview-error', message: event.message || 'Unhandled preview error', filename: event.filename, lineno: event.lineno, colno: event.colno, stack: event.error ? (event.error.stack || event.error.message) : null }, '*') }catch(_){}
+        __swiftRenderRuntimeFallback(event.message || 'Unhandled preview error')
+      })
 
-    try {
-      root.render(<App />);
-    } catch (error) {
-      __swiftRenderRuntimeFallback(error?.message || String(error));
-    }
+      window.addEventListener('unhandledrejection', function(ev){
+        try{ ev.preventDefault && ev.preventDefault() }catch(_){}
+        const reason = ev && (ev.reason || ev.detail) ? (ev.reason && ev.reason.message ? ev.reason.message : String(ev.reason || ev.detail)) : 'Unhandled promise rejection'
+        try{ window.parent?.postMessage({ type: 'swift-preview-error', message: reason, reason: ev.reason }, '*') }catch(_){}
+        __swiftRenderRuntimeFallback(reason)
+      })
+
+      // Compile & execute the generated code (module registry + App component)
+      try{
+        const userCode = ${userCode};
+
+        // Debug instrumentation: report userCode size and some heuristics
+        try {
+          try { console.log('[swift-preview-debug] userCode length:', String(userCode).length) } catch(e) {}
+          const containsModuleRegistry = String(userCode || '').includes('window.__sw_modules') || String(userCode || '').includes('moduleRegistryScript')
+          try { console.log('[swift-preview-debug] containsModuleRegistry:', containsModuleRegistry) } catch(e) {}
+          try { window.parent?.postMessage({ type: 'swift-preview-debug', userCodeLength: String(userCode).length, containsModuleRegistry }, '*') } catch(e) {}
+        } catch (e) {}
+
+          const compiled = Babel.transform(String(userCode || ''), { presets: ['typescript', 'react'] }).code;
+        new Function(compiled)();
+      }catch(err){
+        try{ window.parent?.postMessage({ type: 'swift-preview-error', message: err && err.message ? err.message : String(err), stack: err && err.stack ? err.stack : null }, '*') }catch(_){}
+        __swiftRenderRuntimeFallback(err && err.message ? err.message : String(err))
+      }
+    })()
   </script>
 </body>
-</html>
-  `
+</html>`
 }
 
 /**
  * Transform React/Next.js code for browser execution
  */
-function transformReactCode(code: string, allFiles: GeneratedFile[]): string {
-  let transformed = code
+function transformReactCode(mainFile: GeneratedFile, allFiles: GeneratedFile[]): string {
+  // Helper to strip imports/exports and TS types for module files
+  function transformFileForModule(src: string) {
+    let t = String(src)
+    // Remove import statements entirely for module bundling
+    t = t.replace(/^\s*import\s+type\s+[\s\S]*?from\s+['"][^'"]+['"]\s*;?\s*$/gm, "")
+    t = t.replace(/^\s*import\s+[\s\S]*?from\s+['"][^'"]+['"]\s*;?\s*$/gm, "")
+    t = t.replace(/^\s*import\s+['"][^'"]+['"]\s*;?\s*$/gm, "")
+    t = t.replace(/['"]use client['"];?\n?/g, "")
+
+    // Convert some export patterns to declarations
+    t = t.replace(/export\s+default\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g, "function $1")
+    t = t.replace(/export\s+default\s+(?:async\s+)?function\s*\(/g, "function __default_export(")
+    t = t.replace(/export\s+default\s+([A-Za-z_$][\w$]*)/g, "const __default_export_ref = $1")
+    t = t.replace(/export\s+function\s+([A-Za-z_$][\w$]*)/g, "function $1")
+    t = t.replace(/export\s+const\s+([A-Za-z_$][\w$]*)/g, "const $1")
+    t = t.replace(/export\s+let\s+([A-Za-z_$][\w$]*)/g, "let $1")
+    t = t.replace(/export\s+var\s+([A-Za-z_$][\w$]*)/g, "var $1")
+    t = t.replace(/export\s+class\s+([A-Za-z_$][\w$]*)/g, "class $1")
+    t = t.replace(/export\s*\{[\s\S]*?\}/g, "")
+    t = t.replace(/export\s+/g, "")
+
+    return t
+  }
+
+  function detectExportedNames(src: string) {
+    const names: string[] = []
+    const defaultNames: string[] = []
+    let m
+    const reDefaultNamed = /export\s+default\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g
+    while ((m = reDefaultNamed.exec(src)) !== null) defaultNames.push(m[1])
+
+    const reExportFn = /export\s+function\s+([A-Za-z_$][\w$]*)/g
+    while ((m = reExportFn.exec(src)) !== null) names.push(m[1])
+
+    const reExportConst = /export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g
+    while ((m = reExportConst.exec(src)) !== null) names.push(m[1])
+
+    const reNamed = /export\s*\{([^}]+)\}/g
+    while ((m = reNamed.exec(src)) !== null) {
+      const list = m[1].split(",").map((s) => s.trim().split(" as ")[0].trim())
+      for (const n of list) if (n) names.push(n)
+    }
+
+    const reDefaultVar = /export\s+default\s+(?!function\b|class\b)([A-Za-z_$][\w$]*)/g
+    while ((m = reDefaultVar.exec(src)) !== null) defaultNames.push(m[1])
+
+    return { names: Array.from(new Set(names)), defaultNames: Array.from(new Set(defaultNames)) }
+  }
+
+  function buildKeysForPath(p: string) {
+    const normalized = p.replace(/^\.\//, "").replace(/\\\\/g, "/")
+    const noExt = normalized.replace(/\.(tsx|ts|jsx|js)$/, "")
+    const keys = new Set<string>()
+    keys.add(normalized)
+    keys.add(noExt)
+    keys.add(`@/${noExt}`)
+    keys.add(`./${noExt}`)
+    keys.add(`/${noExt}`)
+    keys.add(noExt.replace(/^\//, ""))
+    return Array.from(keys)
+  }
+
+  function isPreviewExecutableFile(filePath: string) {
+    return /\.(tsx?|jsx?|mjs|cjs)$/i.test(filePath)
+  }
+
+  function isPreviewJsonFile(filePath: string) {
+    return /\.json$/i.test(filePath)
+  }
+
+  function isPreviewAssetFile(filePath: string) {
+    return /\.(css|scss|sass|less|md|env|prisma|html|txt|csv|yml|yaml|svg|png|jpe?g|gif|webp|avif|ico|bmp|mp4|webm|mp3|wav|ogg|woff2?|ttf|otf|lock|toml|ini|xml|pdf|webmanifest|manifest|d\.ts|d\.mts|d\.cts)$/i.test(filePath)
+  }
+
+  function isPreviewServerOnlyFile(filePath: string) {
+    const normalized = filePath.replace(/\\/g, "/").toLowerCase()
+    return (
+      /^app\/api\//.test(normalized) ||
+      /(^|\/)route\.(tsx?|ts|jsx?|js|mjs|cjs)$/i.test(normalized) ||
+      /(^|\/)(auth|proxy)\.ts$/i.test(normalized) ||
+      /^prisma\//.test(normalized) ||
+      /^scripts\//.test(normalized) ||
+      /^public\//.test(normalized) ||
+      /(^|\/)(next\.config\.[mc]?[jt]s|postcss\.config\.[mc]?[jt]s|tailwind\.config\.[mc]?[jt]s|components\.json|package\.json|tsconfig\.json)$/i.test(normalized)
+    )
+  }
+
+  function buildPreviewModuleSource(file: GeneratedFile) {
+    const normalizedPath = file.path.replace(/\\/g, "/")
+
+    if (isPreviewServerOnlyFile(normalizedPath)) {
+      return null
+    }
+
+    if (isPreviewJsonFile(normalizedPath)) {
+      try {
+        const parsed = JSON.parse(String(file.content || "{}"))
+        return `const __default_export = ${JSON.stringify(parsed, null, 2)}\n`
+      } catch {
+        return `const __default_export = {}\n`
+      }
+    }
+
+    if (isPreviewAssetFile(normalizedPath)) {
+      return `const __default_export = {}\n`
+    }
+
+    if (!isPreviewExecutableFile(normalizedPath)) {
+      return null
+    }
+
+    return transformFileForModule(file.content)
+  }
+
+  // Build module registry wrappers for non-main files
+  let moduleRegistryScript = "";
+  for (const f of allFiles || []) {
+    if (!f || !f.path) continue
+    if (f.content === mainFile.content) continue
+    try {
+      const transformedModule = buildPreviewModuleSource(f)
+      if (!transformedModule) {
+        continue
+      }
+
+      const exp = isPreviewExecutableFile(f.path) ? detectExportedNames(f.content) : { names: [], defaultNames: [] }
+      const keys = buildKeysForPath(f.path)
+
+      moduleRegistryScript += `(function(){\n${transformedModule}\nconst __sw_e = {}\n`;
+      for (const n of exp.names) {
+        moduleRegistryScript += `try{ if (typeof ${n} !== 'undefined') __sw_e[${JSON.stringify(n)}] = ${n} }catch(e){}\n`
+      }
+      for (const dn of exp.defaultNames) {
+        moduleRegistryScript += `try{ if (typeof ${dn} !== 'undefined') __sw_e.default = ${dn} }catch(e){}\n`
+      }
+      // If there were no explicit default named, try fallback variable name used earlier
+      moduleRegistryScript += `try{ if (typeof __default_export !== 'undefined') __sw_e.default = __default_export }catch(e){}\n`;
+      moduleRegistryScript += `window.__sw_modules = window.__sw_modules || {}\n`;
+      moduleRegistryScript += `[${keys.map((k) => JSON.stringify(k)).join(",")}].forEach(k=>{ try{ window.__sw_modules[k] = __sw_e }catch(e){} })\n`;
+      moduleRegistryScript += `})()\n\n`;
+    } catch (e) {
+      // ignore module transform errors
+    }
+  }
+
+  // Now transform main file content as before (keeping import fallback declarations)
+  let transformed = String(mainFile.content || "")
 
   transformed = transformImportsToFallbacks(transformed)
 
@@ -436,10 +344,6 @@ function transformReactCode(code: string, allFiles: GeneratedFile[]): string {
     "$1"
   )
   // Remove function parameter annotations: (x: Type, y: Type)
-  transformed = transformed.replace(
-    /([\(,]\s*[A-Za-z_$][\w$]*)\s*:\s*[^,\)\n]+/g,
-    "$1"
-  )
   // Remove function return annotations: (): Type => / function x(): Type {
   transformed = transformed.replace(/\)\s*:\s*[^=\{\n]+(?=\s*=>|\s*\{)/g, ")")
   transformed = transformed.replace(/\s+satisfies\s+[A-Za-z_$][\w$<>\[\]\{\}\|&,\s]*/g, "")
@@ -447,23 +351,14 @@ function transformReactCode(code: string, allFiles: GeneratedFile[]): string {
   transformed = transformed.replace(/\s+as\s+[A-Za-z_$][\w$<>\[\]\{\}\|&,\s]*/g, "")
   // Remove generic annotations from hooks like useState<string>()
   // without stripping JSX tags such as <CardTitle>.
-  transformed = transformed.replace(
-    /(?<=[\w\)])<([A-Z]?\w+)(\s*,\s*([A-Z]?\w+))*>\(/g,
-    "("
-  )
+  transformed = transformed.replace(/(?<=[\w\)])<([A-Z]?\w+)(\s*,\s*([A-Z]?\w+))*>\(/g, "(")
 
   // Remove "use client" directive
   transformed = transformed.replace(/['"]use client['"];?\n?/g, "")
 
   // Replace export default with App component
-  transformed = transformed.replace(
-    /export\s+default\s+function\s+(\w+)/,
-    "function App"
-  )
-  transformed = transformed.replace(
-    /export\s+default\s+(\w+)/,
-    "const App = $1"
-  )
+  transformed = transformed.replace(/export\s+default\s+function\s+(\w+)/, "function App")
+  transformed = transformed.replace(/export\s+default\s+(\w+)/, "const App = $1")
 
   // Remove other exports
   transformed = transformed.replace(/export\s+/g, "")
@@ -476,7 +371,8 @@ function transformReactCode(code: string, allFiles: GeneratedFile[]): string {
   transformed = transformed.replace(/import\s+Image\s+from\s+['"]next\/image['"];?\n?/g, "")
   transformed = transformed.replace(/<Image\s+/g, "<img ")
 
-  return transformed
+  // Prepend module registry wrappers so modules are available at runtime
+  return moduleRegistryScript + "\n" + transformed
 }
 
 function transformImportsToFallbacks(code: string) {

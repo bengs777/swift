@@ -14,7 +14,8 @@ model User {
   name          String?
   image         String?
   passwordHash  String?
-  balance       Int        @default(100000)
+  balance       Int        @default(0)
+  welcomeBonusGrantedAt DateTime?
   emailVerified DateTime?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
@@ -25,6 +26,8 @@ model User {
   accounts      Account[]
   sessions      Session[]
   usageLogs     UsageLog[]
+  billingTransactions BillingTransaction[]
+  topUpOrders   TopUpOrder[]
 
   @@index([email])
 }
@@ -117,6 +120,8 @@ model Project {
   name        String
   description String?
   prompt      String?
+  customDomain String?
+  domainVerified Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -190,6 +195,97 @@ model Subscription {
   updatedAt     DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model BillingTransaction {
+  id                String   @id @default(cuid())
+  userId            String
+  kind              String
+  direction         String
+  amount            Int
+  balanceBefore     Int
+  balanceAfter      Int
+  reference         String?  @unique
+  provider          String?
+  providerReference String?
+  description       String?
+  metadata          String?
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([kind])
+  @@index([provider, providerReference])
+  @@index([createdAt])
+}
+
+model TopUpOrder {
+  id                String   @id @default(cuid())
+  userId            String
+  reference         String   @unique
+  provider          String   @default("pakasir") // "pakasir" or "crypto"
+  providerReference String?  @unique
+  amount            Int
+  status            String   @default("pending")
+  checkoutUrl       String?
+  paymentCode       String?
+  customerName      String?
+  customerEmail     String?
+  payload           String?
+  response          String?
+  paidAt            DateTime?
+  expiresAt         DateTime?
+  
+  // EVM Crypto Fields
+  chainId           Int?
+  walletAddress     String?
+  tokenAmount       String?     // For crypto: in wei/decimal format
+  transactionHash   String?     // Optional until transaction is detected
+  requiresConfirms  Int?        @default(2)
+  confirmCount      Int?        @default(0)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cryptoPayment CryptoPayment?
+
+  @@index([userId])
+  @@index([status])
+  @@index([provider, reference])
+  @@index([transactionHash])
+  @@index([chainId, walletAddress])
+}
+
+model CryptoPayment {
+  id                String   @id @default(cuid())
+  topUpOrderId      String   @unique
+  chainId           Int      // 56 for BSC, 8453 for Base
+  chainName         String   // "BNB Chain" or "Base"
+  tokenSymbol       String   @default("Native") // "ETH" for Base, "BNB" for BSC
+  amountInUsd       Int      // stored in cents
+  amountInToken     String   // decimal string
+  senderAddress     String
+  recipientAddress  String
+  transactionHash   String?  // Optional until transaction is detected
+  blockNumber       Int?
+  confirmations     Int      @default(0)
+  gasUsed           String?
+  gasPriceInGwei    String?
+  status            String   @default("pending") // pending, confirming, confirmed, failed
+  errorMessage      String?
+  detectedAt        DateTime @default(now())
+  confirmedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  topUpOrder TopUpOrder @relation(fields: [topUpOrderId], references: [id], onDelete: Cascade)
+
+  @@index([chainId, transactionHash])
+  @@index([senderAddress])
+  @@index([status])
+  @@index([detectedAt])
 }
 
 model ModelConfig {

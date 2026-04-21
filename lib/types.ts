@@ -26,6 +26,15 @@ export interface GeneratedFile {
   language: "tsx" | "ts" | "css" | "json" | "html" | "prisma" | "md" | "env"
 }
 
+export interface PromptAttachment {
+  id: string
+  name: string
+  mimeType: string
+  size: number
+  kind: "image" | "text" | "binary"
+  content: string
+}
+
 // Chat types
 export interface Message {
   id: string
@@ -60,6 +69,7 @@ export interface AIGenerationRequest {
   prompt: string
   projectId: string
   history: Message[]
+  attachments?: PromptAttachment[]
   context?: {
     existingFiles?: GeneratedFile[]
     template?: string

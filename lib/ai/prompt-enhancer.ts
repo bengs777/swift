@@ -40,6 +40,16 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
   const compactPrompt = inlineText(prompt)
   const normalized = compactPrompt.toLowerCase()
 
+  const looksLikeWorkspace =
+    normalized.includes("workspace") ||
+    normalized.includes("replit") ||
+    normalized.includes("lovable") ||
+    normalized.includes("file explorer") ||
+    normalized.includes("live preview") ||
+    normalized.includes("terminal") ||
+    normalized.includes("code editor") ||
+    normalized.includes("output panel")
+
   const looksLikeDashboard = normalized.includes("dashboard")
   const looksLikeAuth = normalized.includes("login") || normalized.includes("sign in") || normalized.includes("auth")
   const looksLikeLanding = normalized.includes("landing") || normalized.includes("hero") || normalized.includes("marketing")
@@ -48,7 +58,9 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
 
   const projectName = inferProjectName(compactPrompt)
   const productType =
-    looksLikeDashboard
+    looksLikeWorkspace
+      ? "developer workspace"
+      : looksLikeDashboard
       ? "dashboard web app"
       : looksLikeAuth
         ? "authentication-focused web app"
@@ -61,7 +73,11 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
               : "full-stack web app"
 
   const pages = dedupeItems([
-    "Homepage",
+    looksLikeWorkspace ? "Explorer" : "Homepage",
+    looksLikeWorkspace ? "Editor" : "",
+    looksLikeWorkspace ? "Preview" : "",
+    looksLikeWorkspace ? "Terminal" : "",
+    looksLikeWorkspace ? "History" : "",
     looksLikeAuth ? "Login page" : "",
     looksLikeDashboard ? "Dashboard page" : "",
     looksLikeStore ? "Product listing page" : "",
@@ -69,7 +85,10 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
   ])
 
   const features = dedupeItems([
-    looksLikeAuth ? "Form validation and auth-ready UI" : "Responsive layout and polished UI",
+    looksLikeWorkspace ? "File explorer, editor, preview, and output panels" : looksLikeAuth ? "Form validation and auth-ready UI" : "Responsive layout and polished UI",
+    looksLikeWorkspace ? "Patch-first iteration and clear file state" : "",
+    looksLikeWorkspace ? "Keyboard-first command bar and quick actions" : "",
+    looksLikeWorkspace ? "Share link and version history hooks" : "",
     looksLikeDashboard ? "Data cards, tables, and activity sections" : "",
     looksLikeStore ? "Product cards and call-to-action sections" : "",
     looksLikeBlog ? "Content list and readable article layout" : "",
@@ -77,7 +96,10 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
   ])
 
   const apiRoutes = dedupeItems([
-    "/api/health",
+    looksLikeWorkspace ? "/api/projects/[id]/run" : "/api/health",
+    looksLikeWorkspace ? "/api/projects/[id]/share" : "",
+    looksLikeWorkspace ? "/api/projects/[id]/history" : "",
+    looksLikeWorkspace ? "/api/projects/[id]/files" : "",
     looksLikeAuth ? "/api/auth/login" : "",
     looksLikeDashboard ? "/api/dashboard/summary" : "",
     looksLikeStore ? "/api/products" : "",
@@ -85,28 +107,32 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
   ])
 
   const dataModels = dedupeItems([
-    looksLikeAuth ? "User" : "",
+    looksLikeWorkspace ? "ProjectFile" : looksLikeAuth ? "User" : "",
+    looksLikeWorkspace ? "RunSession" : "",
+    looksLikeWorkspace ? "ShareLink" : "",
+    looksLikeWorkspace ? "GenerationHistory" : "",
     looksLikeDashboard ? "DashboardMetric" : "",
     looksLikeStore ? "Product" : "",
     looksLikeBlog ? "Post" : "",
   ])
 
   const uiStyle = dedupeItems([
-    "Modern and production-ready",
-    "Responsive spacing and clear hierarchy",
-    "Dark dashboard aesthetic",
+    looksLikeWorkspace ? "IDE-like split panes and dense hierarchy" : "Modern and production-ready",
+    looksLikeWorkspace ? "Fast feedback loop with visible status and logs" : "Responsive spacing and clear hierarchy",
+    looksLikeWorkspace ? "Opinionated, tasteful default layout" : "Dark dashboard aesthetic",
   ])
 
   const assumptions = dedupeItems([
     compactPrompt.length < 12 ? "User request is brief, so sensible starter defaults are applied." : "",
     "Use Next.js app router with lightweight server endpoints.",
-    "Keep scope practical for a starter project.",
+    looksLikeWorkspace ? "Prefer patch-first iteration over full regeneration when a project already exists." : "Keep scope practical for a starter project.",
+    looksLikeWorkspace ? "Keep preview as a feedback loop and expose runtime errors clearly." : "",
   ])
 
   return {
     projectName,
     productType,
-    coreGoal: compactPrompt || "Build a polished web app starter.",
+    coreGoal: compactPrompt || (looksLikeWorkspace ? "Build a Lovable-style developer workspace starter." : "Build a polished web app starter."),
     pages,
     features,
     apiRoutes,
@@ -128,7 +154,7 @@ function serializeDraft(originalPrompt: string, draft: PromptDraft) {
     formatSection("Suggested data models", draft.dataModels),
     formatSection("UI direction", draft.uiStyle),
     formatSection("Assumptions", draft.assumptions),
-    "Implementation requirement: generate a practical, production-ready Next.js starter with a meaningful homepage and light full-stack structure.",
+    "Implementation requirement: generate a practical, opinionated, production-ready Next.js starter with patch-first iteration. If an existing project is present, update files in place before adding new ones. Keep the preview fast, preserve working structure, and expose runtime feedback clearly.",
   ].filter(Boolean)
 
   return sections.join("\n\n")

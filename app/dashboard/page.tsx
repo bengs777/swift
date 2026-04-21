@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation"
+import Link from "next/link"
 import { formatDistanceToNow } from "date-fns"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/db/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { ProjectList } from "@/components/dashboard/project-list"
 import { NewProjectTrigger } from "@/components/dashboard/new-project-trigger"
 
@@ -62,6 +64,11 @@ export default async function DashboardPage() {
           <Badge variant="secondary" className="px-3 py-1 text-sm">
             Balance: Rp {user.balance.toLocaleString("id-ID")}
           </Badge>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/settings?tab=billing">
+              Top up
+            </Link>
+          </Button>
           <NewProjectTrigger
             workspaces={workspaceOptions}
             defaultWorkspaceId={defaultWorkspaceId}

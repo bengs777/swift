@@ -4,12 +4,15 @@ import { useState, useCallback, useEffect } from "react"
 import { useParams } from "next/navigation"
 import { EditorHeader } from "@/components/editor/header"
 import { ChatPanel } from "@/components/editor/chat-panel"
+import { FileExplorer } from "@/components/editor/file-explorer"
 import { PreviewPanel } from "@/components/editor/preview-panel"
+import { ErrorLogPanel } from "@/components/editor/error-log-panel"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Button } from "@/components/ui/button"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { DEFAULT_MODEL_KEY, DEFAULT_MODEL_OPTIONS } from "@/lib/ai/models"
-import type { GeneratedFile, ModelOption } from "@/lib/types"
+import type { PromptLanguage } from "@/lib/ai/prompt-templates"
+import type { GeneratedFile, ModelOption, PromptAttachment } from "@/lib/types"
 
 const MAX_PROMPT_LENGTH = 12000
 const SUPPORTED_LANGUAGES: GeneratedFile["language"][] = [
@@ -42,6 +45,7 @@ export type Message = {
     cost?: number
     remainingBalance?: number
     failSafeType?: "strict-fullstack"
+    attachments?: string[]
   }
 }
 
@@ -54,6 +58,13 @@ export type ProviderStatus = {
   checkedAt?: string
 }
 
+type ErrorLogEntry = {
+  id: string
+  source: "project" | "provider" | "generate" | "preview" | "save" | "export" | "deploy"
+  message: string
+  timestamp: Date
+}
+
 export default function EditorPage() {
   const params = useParams()
   const projectId = params.id as string
@@ -61,7 +72,9 @@ export default function EditorPage() {
 
   const [messages, setMessages] = useState<Message[]>([])
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFile[]>([])
+  const [previewFiles, setPreviewFiles] = useState<GeneratedFile[] | null>(null)
   const [currentVersion, setCurrentVersion] = useState(0)
+  const [activeFileIndex, setActiveFileIndex] = useState(0)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSavingFiles, setIsSavingFiles] = useState(false)
   const [isLoadingProject, setIsLoadingProject] = useState(true)
@@ -72,11 +85,54 @@ export default function EditorPage() {
   const [selectedModel, setSelectedModel] = useState("")
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([])
   const [mobileView, setMobileView] = useState<"chat" | "preview">("chat")
-  const [layoutPreset, setLayoutPreset] = useState<"prompt" | "balanced" | "preview">("balanced")
+  const [layoutPreset, setLayoutPreset] = useState<"prompt" | "balanced" | "preview">("preview")
   const [layoutRenderKey, setLayoutRenderKey] = useState(0)
+  const [isExporting, setIsExporting] = useState(false)
+  const [isDeploying, setIsDeploying] = useState(false)
+  const [deploymentUrl, setDeploymentUrl] = useState<string | null>(null)
+  const [errorLogs, setErrorLogs] = useState<ErrorLogEntry[]>([])
+  const [customDomain, setCustomDomain] = useState<string | null>(null)
+  const [domainVerified, setDomainVerified] = useState<boolean>(false)
 
-  const createIdempotencyKey = useCallback((prompt: string, modelKey: string) => {
-    const base = `${projectId}:${modelKey}:${prompt.trim().toLowerCase()}`
+  useEffect(() => {
+    if (generatedFiles.length === 0) {
+      if (activeFileIndex !== 0) {
+        setActiveFileIndex(0)
+      }
+      return
+    }
+
+    if (activeFileIndex >= generatedFiles.length) {
+      setActiveFileIndex(generatedFiles.length - 1)
+    }
+  }, [activeFileIndex, generatedFiles.length])
+
+  const pushErrorLog = useCallback((
+    source: ErrorLogEntry["source"],
+    message: string
+  ) => {
+    const trimmed = message.trim()
+    if (!trimmed) return
+
+    setErrorLogs((previous) => [
+      {
+        id:
+          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+        source,
+        message: trimmed,
+        timestamp: new Date(),
+      },
+      ...previous,
+    ].slice(0, 100))
+  }, [])
+
+  const createIdempotencyKey = useCallback((prompt: string, modelKey: string, attachments: PromptAttachment[]) => {
+    const attachmentFingerprint = attachments
+      .map((attachment) => `${attachment.name}:${attachment.kind}:${attachment.size}:${attachment.content.slice(0, 48)}`)
+      .join("|")
+    const base = `${projectId}:${modelKey}:${prompt.trim().toLowerCase()}:${attachmentFingerprint}`
     const hash = Array.from(base).reduce((acc, char, index) => {
       return (acc * 33 + char.charCodeAt(0) + index) % 2147483647
     }, 5381)
@@ -112,10 +168,15 @@ export default function EditorPage() {
           : []
 
         setGeneratedFiles(files)
+        setActiveFileIndex(0)
         setCurrentVersion(data.project?.history?.length || (files.length > 0 ? 1 : 0))
+        setCustomDomain(data.project?.customDomain || null)
+        setDomainVerified(Boolean(data.project?.domainVerified))
       } catch (error) {
         if (!isMounted) return
-        setProjectError(error instanceof Error ? error.message : "Failed to load project")
+        const message = error instanceof Error ? error.message : "Failed to load project"
+        setProjectError(message)
+        pushErrorLog("project", message)
       } finally {
         if (isMounted) {
           setIsLoadingProject(false)
@@ -128,7 +189,7 @@ export default function EditorPage() {
     return () => {
       isMounted = false
     }
-  }, [projectId])
+  }, [projectId, pushErrorLog])
 
   useEffect(() => {
     let isMounted = true
@@ -289,7 +350,12 @@ export default function EditorPage() {
     }
   }, [projectId])
 
-  const handleSendMessage = useCallback(async (content: string, modelKey: string) => {
+  const handleSendMessage = useCallback(async (
+    content: string,
+    modelKey: string,
+    attachments: PromptAttachment[] = [],
+    promptLanguage: PromptLanguage = "id"
+  ) => {
     const trimmedContent = content.trim()
 
     if (!trimmedContent) {
@@ -316,6 +382,7 @@ export default function EditorPage() {
       timestamp: new Date(),
       metadata: {
         model: modelKey,
+        attachments: attachments.map((attachment) => attachment.name),
       },
     }
 
@@ -342,10 +409,12 @@ export default function EditorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: trimmedContent,
+          attachments,
           projectId,
           history: messages,
           selectedModel: modelKey,
-          idempotencyKey: createIdempotencyKey(trimmedContent, modelKey),
+          promptLanguage,
+          idempotencyKey: createIdempotencyKey(trimmedContent, modelKey, attachments),
         }),
       })
 
@@ -372,6 +441,7 @@ export default function EditorPage() {
       const data = JSON.parse(responseText)
 
       if (data.warning) {
+        pushErrorLog("provider", String(data.warning))
         setProviderStatus(buildProviderStatusFromError(String(data.warning)))
       } else {
         setProviderStatus({
@@ -381,6 +451,26 @@ export default function EditorPage() {
           action: "Provider siap dipakai.",
           checkedAt: new Date().toISOString(),
         })
+      }
+
+      if (data.mode === "chat" || data.mode === "clarify") {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantId
+              ? {
+                  ...msg,
+                  content: data.message,
+                  isGenerating: false,
+                  metadata: {
+                    model: data.usage?.model,
+                    cost: data.usage?.cost,
+                    remainingBalance: data.usage?.remainingBalance,
+                  },
+                }
+              : msg
+          )
+        )
+        return
       }
 
       // Update assistant message with response
@@ -406,7 +496,7 @@ export default function EditorPage() {
         )
       )
 
-      // Update generated files
+      // Update generated files (code) and preview-safe files (for sandbox preview)
       if (Array.isArray(data.files)) {
         const normalizedFiles: GeneratedFile[] = data.files.map(
           (file: { path: string; content: string; language?: string }) => ({
@@ -417,11 +507,25 @@ export default function EditorPage() {
         )
 
         setGeneratedFiles(normalizedFiles)
+        setActiveFileIndex(0)
         setCurrentVersion((v) => v + 1)
         setIsDirty(false)
         setActivePreviewTab("code")
       } else {
         setGeneratedFiles([])
+      }
+
+      if (Array.isArray((data as any).previewFiles)) {
+        const normalizedPreview: GeneratedFile[] = (data as any).previewFiles.map(
+          (file: { path: string; content: string; language?: string }) => ({
+            path: file.path,
+            content: file.content,
+            language: normalizeLanguage(file.language),
+          })
+        )
+        setPreviewFiles(normalizedPreview)
+      } else {
+        setPreviewFiles(null)
       }
     } catch (error) {
       const message =
@@ -429,6 +533,7 @@ export default function EditorPage() {
           ? error.message
           : "Sorry, I encountered an error while generating. Please try again."
 
+      pushErrorLog("generate", message)
       setProviderStatus(buildProviderStatusFromError(message))
 
       // Update with error message
@@ -446,7 +551,7 @@ export default function EditorPage() {
     } finally {
       setIsGenerating(false)
     }
-  }, [buildProviderStatusFromError, createIdempotencyKey, messages, projectId])
+  }, [buildProviderStatusFromError, createIdempotencyKey, messages, projectId, pushErrorLog])
 
   const handleUpdateFile = useCallback((index: number, content: string) => {
     setGeneratedFiles((currentFiles) =>
@@ -475,21 +580,173 @@ export default function EditorPage() {
     try {
       await saveFiles(generatedFiles, latestPrompt)
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save files"
+      pushErrorLog("save", message)
       setMessages((prev) => [
         ...prev,
         {
           id: Math.random().toString(36).substring(7),
           role: "assistant",
-          content: error instanceof Error ? error.message : "Failed to save files",
+          content: message,
           timestamp: new Date(),
         },
       ])
     }
-  }, [generatedFiles, messages, saveFiles])
+  }, [generatedFiles, messages, pushErrorLog, saveFiles])
 
   const applyLayoutPreset = useCallback((preset: "prompt" | "balanced" | "preview") => {
     setLayoutPreset(preset)
     setLayoutRenderKey((current) => current + 1)
+  }, [])
+
+  const appendAssistantMessage = useCallback((content: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Math.random().toString(36).substring(7),
+        role: "assistant",
+        content,
+        timestamp: new Date(),
+      },
+    ])
+  }, [])
+
+  const extractDownloadFilename = (contentDisposition: string | null, fallback: string) => {
+    if (!contentDisposition) return fallback
+
+    const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+    if (filenameStarMatch?.[1]) {
+      try {
+        return decodeURIComponent(filenameStarMatch[1])
+      } catch {
+        return filenameStarMatch[1]
+      }
+    }
+
+    const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/i)
+    return filenameMatch?.[1] || fallback
+  }
+
+  const handleExportZip = useCallback(async () => {
+    if (isExporting) return
+    if (generatedFiles.length === 0) {
+      appendAssistantMessage("Belum ada file untuk di-export. Generate dulu, lalu coba Export lagi.")
+      return
+    }
+
+    setIsExporting(true)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/export`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          files: generatedFiles,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(data.error || `Failed to export (${response.status})`)
+      }
+
+      const blob = await response.blob()
+      const fileName = extractDownloadFilename(
+        response.headers.get("content-disposition"),
+        `swift-project-${projectId}.zip`
+      )
+
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = downloadUrl
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+
+      appendAssistantMessage(`Export berhasil: ${fileName}`)
+    } catch (error) {
+      pushErrorLog(
+        "export",
+        error instanceof Error ? error.message : "Gagal export project ke ZIP."
+      )
+      appendAssistantMessage(
+        error instanceof Error ? error.message : "Gagal export project ke ZIP."
+      )
+    } finally {
+      setIsExporting(false)
+    }
+  }, [appendAssistantMessage, generatedFiles, isExporting, projectId, pushErrorLog])
+
+  const handleDeployToVercel = useCallback(async () => {
+    if (isDeploying) return
+    if (generatedFiles.length === 0) {
+      appendAssistantMessage("Belum ada file untuk deploy. Generate dulu, lalu coba Deploy lagi.")
+      return
+    }
+
+    setIsDeploying(true)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/deploy`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          files: generatedFiles,
+        }),
+      })
+
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string
+        deployment?: {
+          url?: string | null
+          readyState?: string
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to deploy (${response.status})`)
+      }
+
+      const url = data.deployment?.url || null
+      setDeploymentUrl(url)
+
+      if (url) {
+        appendAssistantMessage(
+          `Deployment dikirim ke Vercel (status: ${data.deployment?.readyState || "BUILDING"}): ${url}`
+        )
+        window.open(url, "_blank", "noopener,noreferrer")
+      } else {
+        appendAssistantMessage("Deployment berhasil dibuat, tapi URL belum tersedia.")
+      }
+    } catch (error) {
+      pushErrorLog(
+        "deploy",
+        error instanceof Error ? error.message : "Gagal deploy project ke Vercel."
+      )
+      appendAssistantMessage(
+        error instanceof Error ? error.message : "Gagal deploy project ke Vercel."
+      )
+    } finally {
+      setIsDeploying(false)
+    }
+  }, [appendAssistantMessage, generatedFiles, isDeploying, projectId, pushErrorLog])
+
+  const handleDomainSaved = useCallback((domain: string | null) => {
+    setCustomDomain(domain)
+    if (!domain) setDomainVerified(false)
+  }, [])
+
+  const handlePreviewErrorChange = useCallback((message: string | null) => {
+    if (!message) return
+    pushErrorLog("preview", message)
+  }, [pushErrorLog])
+
+  const handleClearErrorLogs = useCallback(() => {
+    setErrorLogs([])
   }, [])
 
   if (isLoadingProject) {
@@ -508,9 +765,19 @@ export default function EditorPage() {
     )
   }
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <EditorHeader projectId={projectId} currentVersion={currentVersion} />
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+      <EditorHeader
+        projectId={projectId}
+        currentVersion={currentVersion}
+        onExportZip={handleExportZip}
+        onDeploy={handleDeployToVercel}
+        isExporting={isExporting}
+        isDeploying={isDeploying}
+        deploymentUrl={deploymentUrl}
+        customDomain={customDomain}
+        onDomainSaved={handleDomainSaved}
+      />
       {isMobile ? (
         <>
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -548,14 +815,16 @@ export default function EditorPage() {
             ) : (
               <PreviewPanel
                 files={generatedFiles}
+                previewFiles={previewFiles}
                 currentVersion={currentVersion}
+                activeFileIndex={activeFileIndex}
                 onUpdateFile={handleUpdateFile}
-                onReplaceFiles={handleReplaceFiles}
                 onSaveFiles={handleSaveFiles}
                 isSaving={isSavingFiles}
                 isDirty={isDirty}
                 activeTab={activePreviewTab}
                 onTabChange={setActivePreviewTab}
+                onPreviewErrorChange={handlePreviewErrorChange}
               />
             )}
           </div>
@@ -588,8 +857,22 @@ export default function EditorPage() {
           <ResizablePanelGroup key={layoutRenderKey} direction="horizontal" className="min-h-0 flex-1">
             <ResizablePanel
               className="min-h-0"
-              defaultSize={layoutPreset === "prompt" ? 55 : layoutPreset === "preview" ? 30 : 40}
-              minSize={25}
+              defaultSize={layoutPreset === "prompt" ? 18 : layoutPreset === "preview" ? 14 : 16}
+              minSize={12}
+              maxSize={22}
+            >
+              <FileExplorer
+                files={generatedFiles}
+                activeFileIndex={activeFileIndex}
+                onSelectFile={setActiveFileIndex}
+                onReplaceFiles={handleReplaceFiles}
+              />
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel
+              className="min-h-0"
+              defaultSize={layoutPreset === "prompt" ? 28 : layoutPreset === "preview" ? 22 : 30}
+              minSize={22}
             >
               <ChatPanel
                 projectId={projectId}
@@ -606,20 +889,26 @@ export default function EditorPage() {
             <ResizableHandle withHandle />
             <ResizablePanel
               className="min-h-0"
-              defaultSize={layoutPreset === "prompt" ? 45 : layoutPreset === "preview" ? 70 : 60}
+              defaultSize={layoutPreset === "prompt" ? 44 : layoutPreset === "preview" ? 54 : 42}
               minSize={30}
             >
               <PreviewPanel
                 files={generatedFiles}
+                previewFiles={previewFiles}
                 currentVersion={currentVersion}
+                activeFileIndex={activeFileIndex}
                 onUpdateFile={handleUpdateFile}
-                onReplaceFiles={handleReplaceFiles}
                 onSaveFiles={handleSaveFiles}
                 isSaving={isSavingFiles}
                 isDirty={isDirty}
                 activeTab={activePreviewTab}
                 onTabChange={setActivePreviewTab}
+                onPreviewErrorChange={handlePreviewErrorChange}
               />
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel className="min-h-0" defaultSize={10} minSize={8} maxSize={18}>
+              <ErrorLogPanel logs={errorLogs} onClear={handleClearErrorLogs} />
             </ResizablePanel>
           </ResizablePanelGroup>
         </>

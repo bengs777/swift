@@ -1,9 +1,12 @@
 import { env } from "@/lib/env"
+import type { PromptLanguage } from "@/lib/ai/prompt-templates"
 
 type ProviderRequest = {
   provider: string
   modelName: string
   prompt: string
+  mode?: "chat" | "files"
+  promptLanguage?: PromptLanguage
 }
 
 type ProviderResponse = {
@@ -33,14 +36,31 @@ const FILE_OUTPUT_SYSTEM_PROMPT = [
   "Each file must include: path, language, content.",
   "Allowed language values: tsx, ts, css, json, html, prisma, md, env.",
   "Prefer generating complete multi-file output for real implementation requests.",
+  "If the prompt refers to an existing project or asks for improvements, patch the existing files first and return only changed or newly created files when possible.",
+  "Keep the response iterative, concise, and production-ready rather than rewriting everything from scratch.",
   "Do not truncate file content.",
 ].join(" ")
 
+const CHAT_SYSTEM_PROMPTS: Record<PromptLanguage, string> = {
+  id: [
+    "Kamu adalah AI percakapan yang membantu di dalam web app builder.",
+    "Balas secara natural dan gunakan bahasa Indonesia.",
+    "Jangan keluarkan JSON, daftar file, atau kode kecuali user memang meminta implementasi.",
+    "Jaga jawaban tetap singkat, berguna, dan natural.",
+  ].join(" "),
+  en: [
+    "You are a conversational AI inside a web app builder.",
+    "Reply naturally and use English.",
+    "Do not output JSON, file lists, or code unless the user explicitly asks for implementation.",
+    "Keep replies concise, useful, and human-like.",
+  ].join(" "),
+}
+
 export class ProviderRouter {
-  static async generate({ provider, modelName, prompt }: ProviderRequest): Promise<ProviderResponse> {
+  static async generate({ provider, modelName, prompt, mode = "files", promptLanguage = "id" }: ProviderRequest): Promise<ProviderResponse> {
     if (provider === "agentrouter") {
       try {
-        const primary = await this.callAgentRouter(modelName, prompt)
+        const primary = await this.callAgentRouter(modelName, prompt, mode, promptLanguage)
         return {
           message: primary.message,
           providerUsed: "agentrouter",
@@ -49,7 +69,7 @@ export class ProviderRouter {
         }
       } catch (error) {
         const primaryError = error instanceof Error ? error : new Error(String(error))
-        const fallback = await this.tryOpenAiFallback(prompt, primaryError)
+        const fallback = await this.tryOpenAiFallback(prompt, primaryError, mode, promptLanguage)
         if (fallback) {
           return fallback
         }
@@ -59,7 +79,7 @@ export class ProviderRouter {
 
     if (provider === "openai") {
       try {
-        const openAi = await this.callOpenAI(modelName, prompt)
+        const openAi = await this.callOpenAI(modelName, prompt, mode, promptLanguage)
         return {
           message: openAi.message,
           providerUsed: "openai",
@@ -68,7 +88,7 @@ export class ProviderRouter {
         }
       } catch (error) {
         const primaryError = error instanceof Error ? error : new Error(String(error))
-        const fallback = await this.tryOpenAiModelFallback(modelName, prompt, primaryError)
+        const fallback = await this.tryOpenAiModelFallback(modelName, prompt, primaryError, mode, promptLanguage)
         if (fallback) {
           return fallback
         }
@@ -79,7 +99,12 @@ export class ProviderRouter {
     throw new Error(`Unsupported AI provider: ${provider}`)
   }
 
-  private static async callAgentRouter(modelName: string, prompt: string): Promise<ProviderMessage> {
+  private static async callAgentRouter(
+    modelName: string,
+    prompt: string,
+    mode: "chat" | "files",
+    promptLanguage: PromptLanguage = "id"
+  ): Promise<ProviderMessage> {
     if (!env.agentRouterApiKey) {
       throw new Error("AGENTROUTER_API_KEY is not configured")
     }
@@ -98,7 +123,7 @@ export class ProviderRouter {
             },
             body: JSON.stringify({
               model: modelName,
-              messages: this.buildMessages(prompt),
+              messages: this.buildMessages(prompt, mode, promptLanguage),
             }),
           },
           "AgentRouter",
@@ -143,7 +168,12 @@ export class ProviderRouter {
     throw lastError || new Error("AgentRouter request failed.")
   }
 
-  private static async callOpenAI(modelName: string, prompt: string): Promise<ProviderMessage> {
+  private static async callOpenAI(
+    modelName: string,
+    prompt: string,
+    mode: "chat" | "files",
+    promptLanguage: PromptLanguage = "id"
+  ): Promise<ProviderMessage> {
     if (!env.openAiApiKey) {
       throw new Error("OPENAI_API_KEY is not configured")
     }
@@ -159,7 +189,7 @@ export class ProviderRouter {
             headers: this.buildOpenAiHeaders(),
             body: JSON.stringify({
               model: modelName,
-              messages: this.buildMessages(prompt),
+              messages: this.buildMessages(prompt, mode, promptLanguage),
             }),
           },
           "OpenAI",
@@ -194,7 +224,12 @@ export class ProviderRouter {
     throw lastError || new Error("OpenAI request failed.")
   }
 
-  private static async tryOpenAiFallback(prompt: string, primaryError: Error): Promise<ProviderResponse | null> {
+  private static async tryOpenAiFallback(
+    prompt: string,
+    primaryError: Error,
+    mode: "chat" | "files",
+    promptLanguage: PromptLanguage = "id"
+  ): Promise<ProviderResponse | null> {
     if (!this.shouldFallbackToOpenAi(primaryError)) {
       return null
     }
@@ -209,7 +244,7 @@ export class ProviderRouter {
     }
 
     try {
-      const fallback = await this.callOpenAI(fallbackModel, prompt)
+      const fallback = await this.callOpenAI(fallbackModel, prompt, mode, promptLanguage)
       return {
         message: fallback.message,
         providerUsed: "openai",
@@ -244,7 +279,9 @@ export class ProviderRouter {
   private static async tryOpenAiModelFallback(
     primaryModel: string,
     prompt: string,
-    primaryError: Error
+    primaryError: Error,
+    mode: "chat" | "files",
+    promptLanguage: PromptLanguage = "id"
   ): Promise<ProviderResponse | null> {
     if (!this.shouldTryOpenAiModelFallback(primaryError)) {
       return null
@@ -257,7 +294,7 @@ export class ProviderRouter {
 
     for (const model of candidates) {
       try {
-        const fallback = await this.callOpenAI(model, prompt)
+        const fallback = await this.callOpenAI(model, prompt, mode, promptLanguage)
         return {
           message: fallback.message,
           providerUsed: "openai",
@@ -365,11 +402,11 @@ export class ProviderRouter {
     return headers
   }
 
-  private static buildMessages(prompt: string) {
+  private static buildMessages(prompt: string, mode: "chat" | "files", promptLanguage: PromptLanguage = "id") {
     return [
       {
         role: "system",
-        content: FILE_OUTPUT_SYSTEM_PROMPT,
+        content: mode === "chat" ? CHAT_SYSTEM_PROMPTS[promptLanguage] : FILE_OUTPUT_SYSTEM_PROMPT,
       },
       {
         role: "user",

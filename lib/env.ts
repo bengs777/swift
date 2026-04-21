@@ -41,6 +41,19 @@ const normalizeProvider = (value: string) => {
 }
 
 const normalizeUrl = (url: string) => url.replace(/\/+$/, "")
+const normalizeAppUrl = (value: string) => {
+  const normalized = normalizeUrl(value)
+  if (!normalized) {
+    return ""
+  }
+
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized
+  }
+
+  return `https://${normalized}`
+}
+
 const OPENAI_DEFAULT_MODEL = getEnv("OPENAI_DEFAULT_MODEL", "OPENAI_FALLBACK_MODEL") || "gpt-4o-mini"
 const OPENAI_FALLBACK_MODEL = getEnv("OPENAI_FALLBACK_MODEL") || OPENAI_DEFAULT_MODEL
 
@@ -75,9 +88,22 @@ export const env = {
   supabaseAnonKey: getEnv("SUPABASE_ANON_KEY"),
   supabaseUrl: getEnv("NEXT_PUBLIC_SUPABASE_URL"),
   supabaseBucket: getEnv("SUPABASE_STORAGE_BUCKET"),
+  appUrl: normalizeAppUrl(getEnv("NEXT_PUBLIC_APP_URL", "APP_URL", "NEXTAUTH_URL", "VERCEL_URL") || "http://localhost:3000"),
+  pakasirSlug: getEnv("PAKASIR_SLUG", "PAKASIR_MERCHANT_ID"),
+  pakasirApiKey: getEnv("PAKASIR_API_KEY"),
   vercelAccessToken: getEnv("VERCEL_ACCESS_TOKEN"),
   tursoAuthToken: getEnv("TURSO_AUTH_TOKEN"),
   tursoDatabaseUrl: getEnv("TURSO_DATABASE_URL"),
+  // Crypto Payment
+  cryptoPaymentPrivateKey: getEnv("CRYPTO_PAYMENT_PRIVATE_KEY"),
+  cryptoPaymentAddress: getEnv("NEXT_PUBLIC_CRYPTO_PAYMENT_ADDRESS"),
+  bnbChainId: getEnvNumber(56, "NEXT_PUBLIC_BNB_CHAIN_ID"),
+  bnbRpcUrl: getEnv("NEXT_PUBLIC_BNB_RPC_URL") || "https://bsc-dataseed.binance.org",
+  baseChainId: getEnvNumber(8453, "NEXT_PUBLIC_BASE_CHAIN_ID"),
+  baseRpcUrl: getEnv("NEXT_PUBLIC_BASE_RPC_URL") || "https://mainnet.base.org",
+  cryptoPaymentMinAmount: getEnv("CRYPTO_PAYMENT_MIN_AMOUNT") || "0.00012",
+  cryptoPaymentTimeoutMinutes: getEnvNumber(30, "CRYPTO_PAYMENT_TIMEOUT_MINUTES"),
+  cryptoPaymentConfirmationsRequired: getEnvNumber(2, "CRYPTO_PAYMENT_CONFIRMATIONS_REQUIRED"),
 }
 
 if (env.nodeEnv === "production") {

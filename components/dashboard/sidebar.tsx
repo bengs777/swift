@@ -14,6 +14,7 @@ import {
   LogOut
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { ThemeToggle } from "@/components/ui/theme-toggle"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,13 +37,16 @@ export function DashboardSidebar() {
   return (
     <aside className="flex w-64 flex-col border-r border-border bg-sidebar">
       {/* Logo */}
-      <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
+      <div className="flex h-14 items-center justify-between gap-2 border-b border-sidebar-border px-4">
         <Link href="/" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
             <Zap className="h-4 w-4 text-sidebar-primary-foreground" />
           </div>
           <span className="text-lg font-semibold text-sidebar-foreground">Swift</span>
         </Link>
+        <div className="flex items-center">
+          <ThemeToggle />
+        </div>
       </div>
 
       {/* Navigation */}

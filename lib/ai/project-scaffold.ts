@@ -337,14 +337,7 @@ model Project {
 }
 `,
     },
-    {
-      path: "styles/globals.css",
-      language: "css",
-      content: `@tailwind base;
-@tailwind components;
-@tailwind utilities;
-`,
-    },
+    
     {
       path: ".env.example",
       language: "env",
@@ -434,9 +427,7 @@ export default nextConfig
       path: "postcss.config.mjs",
       language: "ts",
       content: `export default {
-  plugins: {
-    "@tailwindcss/postcss": {},
-  },
+  plugins: {},
 }
 `,
     },
@@ -468,6 +459,14 @@ export default nextConfig
 }
 `,
     },
+    {
+      path: "styles/globals.css",
+      language: "css",
+      content: `/* global styles (no Tailwind) */
+html, body { height: 100%; }
+body { margin: 0; font-family: Inter, system-ui, sans-serif; }
+`,
+    }
   ]
 }
 

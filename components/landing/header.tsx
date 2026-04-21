@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { Zap } from "lucide-react"
 
 export function Header() {
@@ -31,6 +32,7 @@ export function Header() {
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          <ThemeToggle />
           <Link href="/login">
             <Button variant="ghost" size="sm">
               Sign In

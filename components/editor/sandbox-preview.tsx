@@ -15,6 +15,27 @@ export function SandboxPreview({ files, className = "", onError }: SandboxPrevie
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const formatError = (message: string, details?: { filename?: string; lineno?: number; colno?: number; source?: string; stack?: string | null }) => {
+    const segments = [message]
+
+    if (details?.filename) {
+      const line = typeof details.lineno === "number" ? details.lineno : null
+      const col = typeof details.colno === "number" ? details.colno : null
+      const location = line != null ? `${details.filename}${line ? `:${line}` : ""}${col ? `:${col}` : ""}` : details.filename
+      segments.push(`at ${location}`)
+    }
+
+    if (details?.source && details.source !== details.filename) {
+      segments.push(`source: ${details.source}`)
+    }
+
+    if (details?.stack) {
+      segments.push(details.stack)
+    }
+
+    return segments.join("\n")
+  }
+
   // Generate HTML for preview
   const previewHtml = useMemo(() => {
     if (files.length === 0) {
@@ -48,21 +69,48 @@ export function SandboxPreview({ files, className = "", onError }: SandboxPrevie
         doc.close()
       }
 
-      // Listen for errors from iframe
+      // Listen for errors from iframe (direct error events)
       const handleError = (event: ErrorEvent) => {
-        if (event.filename?.includes("blob:") || !event.filename) {
-          const errorMessage = `${event.message} (line ${event.lineno})`
-          setError(errorMessage)
-          onError?.(errorMessage)
-        }
+        const errorMessage = formatError(event.message || "Unhandled preview error", {
+          filename: event.filename || undefined,
+          lineno: typeof event.lineno === "number" ? event.lineno : undefined,
+          colno: typeof event.colno === "number" ? event.colno : undefined,
+          stack: event.error ? event.error.stack || event.error.message || null : null,
+        })
+        setError(errorMessage)
+        onError?.(errorMessage)
       }
 
       iframe.contentWindow?.addEventListener("error", handleError)
+
+      // Listen for forwarded messages from preview (postMessage)
+      const handleMessage = (ev: MessageEvent) => {
+        try {
+          const data = ev?.data
+          if (!data || typeof data !== "object") return
+          if (data.type === "swift-preview-error") {
+            const msg = formatError(data.message || JSON.stringify(data), {
+              filename: typeof data.filename === "string" ? data.filename : undefined,
+              lineno: typeof data.lineno === "number" ? data.lineno : undefined,
+              colno: typeof data.colno === "number" ? data.colno : undefined,
+              source: typeof data.source === "string" ? data.source : undefined,
+              stack: typeof data.stack === "string" ? data.stack : null,
+            })
+            setError(msg)
+            onError?.(msg)
+          }
+        } catch (e) {
+          // ignore malformed messages
+        }
+      }
+
+      window.addEventListener("message", handleMessage)
 
       setIsLoading(false)
 
       return () => {
         iframe.contentWindow?.removeEventListener("error", handleError)
+        window.removeEventListener("message", handleMessage)
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to render preview"

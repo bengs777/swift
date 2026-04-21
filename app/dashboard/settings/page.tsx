@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -11,13 +12,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { User, Key, Bell, Palette, CreditCard, Shield } from "lucide-react"
+import { BillingPanel } from "@/components/dashboard/billing-panel"
 
 export default function SettingsPage() {
+  const searchParams = useSearchParams()
   const [notifications, setNotifications] = useState({
     email: true,
     push: false,
     marketing: false,
   })
+  const [activeTab, setActiveTab] = useState(() => {
+    const tab = searchParams.get("tab")
+    return tab === "profile" || tab === "api" || tab === "notifications" || tab === "appearance" || tab === "billing"
+      ? tab
+      : "profile"
+  })
+
+  useEffect(() => {
+    const tab = searchParams.get("tab")
+    if (tab === "profile" || tab === "api" || tab === "notifications" || tab === "appearance" || tab === "billing") {
+      setActiveTab(tab)
+    }
+  }, [searchParams])
 
   return (
     <div className="flex h-full flex-col">
@@ -30,7 +46,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <Tabs defaultValue="profile" className="p-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="p-6">
           <TabsList className="mb-6">
             <TabsTrigger value="profile" className="gap-2">
               <User className="h-4 w-4" />
@@ -251,53 +267,7 @@ export default function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="billing">
-            <Card>
-              <CardHeader>
-                <CardTitle>Billing & Plans</CardTitle>
-                <CardDescription>
-                  Manage your subscription and billing information
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="mb-6 rounded-lg border border-border bg-secondary/50 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-medium text-foreground">Free Plan</h4>
-                        <Badge>Current</Badge>
-                      </div>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        50 generations per day
-                      </p>
-                    </div>
-                    <Button>Upgrade to Pro</Button>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-lg border border-border p-4">
-                    <h4 className="font-medium text-foreground">Pro</h4>
-                    <div className="mt-2 text-2xl font-bold">$20<span className="text-sm font-normal text-muted-foreground">/month</span></div>
-                    <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
-                      <li>500 generations per day</li>
-                      <li>Priority support</li>
-                      <li>Custom domains</li>
-                      <li>Team collaboration</li>
-                    </ul>
-                  </div>
-                  <div className="rounded-lg border border-border p-4">
-                    <h4 className="font-medium text-foreground">Team</h4>
-                    <div className="mt-2 text-2xl font-bold">$50<span className="text-sm font-normal text-muted-foreground">/month</span></div>
-                    <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
-                      <li>2000 generations per day</li>
-                      <li>Dedicated support</li>
-                      <li>SSO authentication</li>
-                      <li>Advanced analytics</li>
-                    </ul>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <BillingPanel />
           </TabsContent>
         </Tabs>
       </div>

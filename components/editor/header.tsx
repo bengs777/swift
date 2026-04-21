@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { 
+import {
   ArrowLeft, 
   Download, 
   ExternalLink, 
@@ -19,13 +19,32 @@ import {
   Share2,
   Github
 } from "lucide-react"
+import DomainDialog from "./domain-dialog"
+import { ThemeToggle } from "@/components/ui/theme-toggle"
 
 interface EditorHeaderProps {
   projectId: string
   currentVersion: number
+  onExportZip?: () => void
+  onDeploy?: () => void
+  isExporting?: boolean
+  isDeploying?: boolean
+  deploymentUrl?: string | null
+  customDomain?: string | null
+  onDomainSaved?: (domain: string | null) => void
 }
 
-export function EditorHeader({ projectId, currentVersion }: EditorHeaderProps) {
+export function EditorHeader({
+  projectId,
+  currentVersion,
+  onExportZip,
+  onDeploy,
+  isExporting = false,
+  isDeploying = false,
+  deploymentUrl = null,
+  customDomain = null,
+  onDomainSaved,
+}: EditorHeaderProps) {
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4">
       <div className="flex items-center gap-4">
@@ -45,6 +64,8 @@ export function EditorHeader({ projectId, currentVersion }: EditorHeaderProps) {
       </div>
 
       <div className="flex items-center gap-2">
+        <ThemeToggle />
+
         <Button variant="outline" size="sm" className="gap-2">
           <Share2 className="h-4 w-4" />
           Share
@@ -52,13 +73,13 @@ export function EditorHeader({ projectId, currentVersion }: EditorHeaderProps) {
         
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button variant="outline" size="sm" className="gap-2" disabled={isExporting}>
               <Download className="h-4 w-4" />
-              Export
+              {isExporting ? "Exporting..." : "Export"}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>
+            <DropdownMenuItem onSelect={onExportZip} disabled={isExporting}>
               <Download className="mr-2 h-4 w-4" />
               Download ZIP
             </DropdownMenuItem>
@@ -69,10 +90,14 @@ export function EditorHeader({ projectId, currentVersion }: EditorHeaderProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button size="sm" className="gap-2">
-          <Rocket className="h-4 w-4" />
-          Deploy
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" className="gap-2" onClick={onDeploy} disabled={isDeploying}>
+            <Rocket className="h-4 w-4" />
+            {isDeploying ? "Deploying..." : "Deploy"}
+          </Button>
+
+          <DomainDialog projectId={projectId} currentDomain={customDomain} onDomainSaved={onDomainSaved} />
+        </div>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -85,6 +110,16 @@ export function EditorHeader({ projectId, currentVersion }: EditorHeaderProps) {
               <ExternalLink className="mr-2 h-4 w-4" />
               Open in new tab
             </DropdownMenuItem>
+            {deploymentUrl && (
+              <DropdownMenuItem
+                onSelect={() => {
+                  window.open(deploymentUrl, "_blank", "noopener,noreferrer")
+                }}
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Open latest deployment
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem>Project settings</DropdownMenuItem>
           </DropdownMenuContent>

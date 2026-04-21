@@ -9,8 +9,12 @@ import { buildProjectFiles } from "@/lib/ai/project-scaffold"
 import { extractGeneratedFilesFromProviderMessage, mergeGeneratedFiles } from "@/lib/ai/provider-output"
 import { enhancePromptWithAgentRouter } from "@/lib/ai/prompt-enhancer"
 import { autoRepairFullStackFiles, validateFullStackFiles } from "@/lib/ai/fullstack-validator"
-import type { GeneratedFile } from "@/lib/types"
+import { ProviderRouter } from "@/lib/ai/provider-router"
+import { analyzePromptIntent, buildClarifyingPrompt } from "@/lib/ai/prompt-intent"
+import type { PromptLanguage } from "@/lib/ai/prompt-templates"
+import type { GeneratedFile, PromptAttachment } from "@/lib/types"
 import { z } from "zod"
+import ts from "typescript"
 import { orchestrateGeneration } from "@/lib/ai/orchestrator"
 import { log } from "@/lib/logging"
 
@@ -34,15 +38,32 @@ class StrictFullStackValidationError extends Error {
 }
 
 const MAX_PROMPT_LENGTH = 12000
+const MAX_ATTACHMENTS = 5
+const MAX_ATTACHMENT_SIZE_BYTES = 3 * 1024 * 1024
+const MAX_ATTACHMENT_CONTEXT_CHARS = 20000
 const CONTEXT_FILE_CHAR_LIMIT = 2200
 const CONTEXT_TOTAL_CHAR_LIMIT = 20000
 const CONTEXT_MAX_FILE_COUNT = 18
+const PREVIEW_EXECUTABLE_FILE_PATTERN = /\.(tsx|ts|jsx|js|mjs|cjs)$/i
+const PREVIEW_JSON_FILE_PATTERN = /\.json$/i
+const PREVIEW_ASSET_FILE_PATTERN = /\.(css|scss|sass|less|md|env|prisma|html|txt|csv|yml|yaml|svg|png|jpe?g|gif|webp|avif|ico|bmp|mp4|webm|mp3|wav|ogg|woff2?|ttf|otf|lock|toml|ini|xml|pdf|webmanifest|manifest|d\.ts|d\.mts|d\.cts)$/i
 
 const GenerateSchema = z.object({
   prompt: z.string().min(1),
   projectId: z.string().min(1),
   selectedModel: z.string().min(1),
+  promptLanguage: z.enum(["id", "en"]).optional().default("id"),
   idempotencyKey: z.string().optional(),
+  attachments: z.array(
+    z.object({
+      id: z.string().min(1).max(100),
+      name: z.string().min(1).max(180),
+      mimeType: z.string().max(120).optional().default("application/octet-stream"),
+      size: z.number().int().nonnegative().max(MAX_ATTACHMENT_SIZE_BYTES),
+      kind: z.enum(["image", "text", "binary"]),
+      content: z.string().min(1),
+    })
+  ).max(MAX_ATTACHMENTS).optional().default([]),
 })
 
 function getProviderDisplayName(provider: string) {
@@ -108,20 +129,23 @@ export async function POST(request: NextRequest) {
     const body = await GenerateSchema.parseAsync(raw)
     const prompt = body.prompt.trim()
     const selectedModel = body.selectedModel.trim()
+    const promptLanguage = body.promptLanguage as PromptLanguage
     const projectId = body.projectId.trim()
     const idempotencyKey = body.idempotencyKey?.trim()
+    const attachments = normalizeAttachments(body.attachments)
+    const promptWithAttachments = appendAttachmentsToPrompt(prompt, attachments)
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required", code: "PROMPT_REQUIRED" }, { status: 400 })
     }
 
-    if (prompt.length > MAX_PROMPT_LENGTH) {
+    if (promptWithAttachments.length > MAX_PROMPT_LENGTH) {
       return NextResponse.json(
         {
           error: `Prompt exceeds maximum length of ${MAX_PROMPT_LENGTH} characters.`,
           code: "PROMPT_TOO_LONG",
           maxLength: MAX_PROMPT_LENGTH,
-          currentLength: prompt.length,
+          currentLength: promptWithAttachments.length,
         },
         { status: 400 }
       )
@@ -177,6 +201,7 @@ export async function POST(request: NextRequest) {
     }
 
     const existingFiles = toGeneratedFiles(project.files || [])
+    const promptIntent = analyzePromptIntent(prompt, promptLanguage)
 
     enforceUserRateLimit(user.id)
 
@@ -197,6 +222,59 @@ export async function POST(request: NextRequest) {
 
     if (modelConfig.provider === "openai" && !env.openAiApiKey) {
       return NextResponse.json({ error: "OpenAI provider is not configured" }, { status: 503 })
+    }
+
+    if (promptIntent.mode === "chat") {
+      const chatResult = await ProviderRouter.generate({
+        provider: modelConfig.provider,
+        modelName: modelConfig.modelName,
+        prompt: promptWithAttachments,
+        mode: "chat",
+        promptLanguage,
+      })
+
+      return NextResponse.json({
+        mode: "chat",
+        message: chatResult.message,
+        files: [],
+        previewFiles: null,
+        code: "",
+        usage: {
+          model: chatResult.modelUsed,
+          provider: chatResult.providerUsed,
+          billedModel: modelConfig.key,
+          billedProvider: modelConfig.provider,
+          cost: 0,
+          remainingBalance: user.balance,
+        },
+      })
+    }
+
+    if (promptIntent.needsClarification) {
+      const clarificationResult = await ProviderRouter.generate({
+        provider: modelConfig.provider,
+        modelName: modelConfig.modelName,
+        prompt: buildClarifyingPrompt(promptWithAttachments, promptLanguage),
+        mode: "chat",
+        promptLanguage,
+      })
+
+      return NextResponse.json({
+        mode: "clarify",
+        needsClarification: true,
+        message: clarificationResult.message,
+        files: [],
+        previewFiles: null,
+        code: "",
+        usage: {
+          model: clarificationResult.modelUsed,
+          provider: clarificationResult.providerUsed,
+          billedModel: modelConfig.key,
+          billedProvider: modelConfig.provider,
+          cost: 0,
+          remainingBalance: user.balance,
+        },
+      })
     }
 
     // Idempotency check: if client provided an idempotencyKey, return previous result
@@ -237,7 +315,7 @@ export async function POST(request: NextRequest) {
       modelConfig.id,
       modelConfig.key,
       modelConfig.provider,
-      prompt,
+      promptWithAttachments,
       modelConfig.price
     )
 
@@ -245,11 +323,11 @@ export async function POST(request: NextRequest) {
       const promptEnhancement =
         modelConfig.provider === "agentrouter"
           ? await enhancePromptWithAgentRouter({
-              prompt,
+              prompt: promptWithAttachments,
               modelName: modelConfig.modelName,
             })
           : {
-              prompt,
+              prompt: promptWithAttachments,
               summary: prompt,
               sourcesUsed: [],
               usedEnhancement: false,
@@ -293,7 +371,7 @@ export async function POST(request: NextRequest) {
       const providerParsed = extractGeneratedFilesFromProviderMessage(result.message)
       const scaffold = buildProjectFiles({
         prompt: fullStackPrompt,
-        originalPrompt: prompt,
+        originalPrompt: promptWithAttachments,
         projectName: project.name,
         providerMessage: result.message,
         promptSummary: promptEnhancement.summary,
@@ -384,7 +462,12 @@ export async function POST(request: NextRequest) {
         : ""
       const responseMessage = `${baseResponseMessage}${fallbackNote}`
 
-      const historyId = await saveProjectGeneration(project.id, prompt, generatedFiles, {
+      // Create a preview-safe copy of files: replace frontend files that contain
+      // async/top-level await or Promise usage with a lightweight preview fallback
+      // so the in-browser sandbox preview won't try to render server-only code.
+      const previewFiles = sanitizeFilesForPreview(generatedFiles)
+
+      const historyId = await saveProjectGeneration(project.id, promptWithAttachments, generatedFiles, {
         idempotencyKey,
         cost: modelConfig.price,
       })
@@ -398,8 +481,10 @@ export async function POST(request: NextRequest) {
       })
 
       return NextResponse.json({
+        mode: "build",
         message: responseMessage,
         files: generatedFiles,
+        previewFiles,
         code: generatedFiles[0]?.content || "",
         historyId,
         usage: {
@@ -415,7 +500,7 @@ export async function POST(request: NextRequest) {
       const isStrictFullStackError = error instanceof StrictFullStackValidationError
       const errorMessage = error instanceof Error ? error.message : "AI request failed"
       const scaffoldFallback = buildProjectFiles({
-        prompt,
+        prompt: promptWithAttachments,
         projectName: project.name,
       }).files
       const fallbackFiles = isStrictFullStackError
@@ -437,17 +522,21 @@ export async function POST(request: NextRequest) {
         errorMessage
       )
 
-      const historyId = await saveProjectGeneration(project.id, prompt, fallbackFiles, {
+      const historyId = await saveProjectGeneration(project.id, promptWithAttachments, fallbackFiles, {
         idempotencyKey,
         cost: 0,
       })
 
+      const previewFiles = sanitizeFilesForPreview(fallbackFiles)
+
       return NextResponse.json({
+        mode: "build",
         message:
           existingFiles.length > 0
             ? `${friendlyMessage}\n\nPerubahan belum diterapkan. File project terakhir dipertahankan supaya kamu bisa lanjut dari versi sebelumnya.`
             : friendlyMessage,
         files: fallbackFiles,
+        previewFiles,
         code: fallbackFiles[0]?.content || "",
         historyId,
         usage: {
@@ -482,12 +571,416 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Sanitize generated files for browser preview: replace frontend files that
+// contain async/server-only constructs with a simple client-safe placeholder.
+function sanitizeFilesForPreview(files: GeneratedFile[]): GeneratedFile[] {
+  const findPreviewVariant = (path: string) => {
+    const candidates = [
+      path.replace(/(\.[^/.]+)$/, ".preview$1"),
+      `preview/${path}`,
+      path.replace(/^app\//, "preview/app/"),
+    ]
+
+    for (const candidate of candidates) {
+      const found = files.find((item) => item.path === candidate)
+      if (found) return found
+    }
+
+    return null
+  }
+
+  return files.map((file) => {
+    try {
+      const previewVariant = findPreviewVariant(file.path)
+      const sourceContent = String(previewVariant?.content ?? file.content ?? "")
+
+      if (isPreviewJsonFile(file.path)) {
+        return {
+          ...file,
+          content: buildPreviewJsonModule(sourceContent),
+        }
+      }
+
+      if (isPreviewAssetFile(file.path)) {
+        return {
+          ...file,
+          content: buildPreviewAssetModule(),
+        }
+      }
+
+      if (!isPreviewExecutableFile(file.path)) {
+        return file
+      }
+
+      const candidates = buildPreviewExecutableCandidates(sourceContent, file.path)
+
+      for (const candidate of candidates) {
+        const diagnostics = getPreviewSyntaxDiagnostics(candidate, file.path)
+        if (diagnostics.length === 0) {
+          return {
+            ...file,
+            content: candidate,
+          }
+        }
+      }
+
+      const diagnostics = getPreviewSyntaxDiagnostics(candidates[0] ?? sourceContent, file.path)
+      const detail = diagnostics.length > 0
+        ? diagnostics.slice(0, 2).map(formatPreviewDiagnostic).join(" | ")
+        : `Unable to normalize preview file ${file.path}`
+
+      return {
+        ...file,
+        content: buildPreviewFallbackModule(file.path, detail),
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : `Unable to normalize preview file ${file.path}`
+      return {
+        ...file,
+        content: buildPreviewFallbackModule(file.path, detail),
+      }
+    }
+  })
+}
+
+// Heuristic repairs for common malformed object/array entries produced by
+// model generations: e.g. "value,481" -> "value: \"481\"", or
+// "trend,+8.1%" -> "trend: \"+8.1%\"". These are conservative
+// regex-based fixes applied as a best-effort before falling back to the
+// preview placeholder.
+function repairCommonObjectLiteralMistakes(input: string) {
+  let out = String(input)
+
+  // Focused key-based fixes first (common stat keys)
+  const keys = ['value', 'trend', 'label', 'title', 'orders', 'revenue', 'count', 'amount', 'total', 'percent', 'change']
+  const keyPattern = keys.join('|')
+
+  // key, "string"  -> key: "string"
+  out = out.replace(new RegExp(`\\b(${keyPattern})\\s*,\\s*["']([^"']+)["']`, 'gi'), '$1: "$2"')
+
+  // key, 2,481  -> key: "2,481"
+  out = out.replace(new RegExp(`\\b(${keyPattern})\\s*,\\s*([+\\-]?\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?%?)`, 'gi'), '$1: "$2"')
+
+  // Generic quoted string fix: id, 'str' -> id: "str"
+  out = out.replace(/(\b[A-Za-z_$][\w$]*)\s*,\s*'([^']*)'/g, '$1: "$2"')
+  out = out.replace(/(\b[A-Za-z_$][\w$]*)\s*,\s*"([^"]*)"/g, '$1: "$2"')
+
+  // Generic numeric fix for identifier,number -> id: "number"
+  out = out.replace(/(\b[A-Za-z_$][\w$]*)\s*,\s*([+\-]?\d{1,3}(?:,\d{3})*(?:\.\d+)?%?)/g, '$1: "$2"')
+
+  // Tidy up obvious stray patterns like value,481' (missing quote closing)
+  out = out.replace(new RegExp(`\\b(${keyPattern})\\s*,\\s*([0-9,]+)'`, 'gi'), '$1: "$2"')
+
+  return out
+}
+
+// Replace inline array data blocks that are clearly malformed with a safe
+// preview-friendly version. For example, if a model generated a `const stats = [ ... ]`
+// block with broken punctuation, this will extract any `label` values and
+// produce a sanitized array of objects: [{ label: "...", value: "0", trend: "0%" }, ...]
+function sanitizeInlineArrays(input: string) {
+  const src = String(input)
+  let out = src
+
+  const numericKeys = ['value', 'orders', 'revenue', 'count', 'amount', 'total']
+  const percentKeys = ['trend', 'percent', 'change']
+  const textKeys = ['label', 'title', 'name', 'subtitle', 'description', 'text', 'time']
+  const keyPattern = [...numericKeys, ...percentKeys, ...textKeys].join('|')
+
+  // Key-based fixes first (common stat keys)
+  out = out.replace(new RegExp(`\\b(${numericKeys.join('|')})\\s*,\\s*([+\\-]?\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?%?)["']?`, 'gi'), '$1: "$2"')
+  out = out.replace(new RegExp(`\\b(${percentKeys.join('|')})\\s*,\\s*([+\\-]?\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?%?)["']?`, 'gi'), '$1: "$2"')
+
+  // Fill in obviously missing values for common keys
+  out = out.replace(new RegExp(`\\b(${numericKeys.join('|')})\\s*,(?=\\s*[,}\\]])`, 'gi'), '$1: "0"')
+  out = out.replace(new RegExp(`\\b(${percentKeys.join('|')})\\s*,(?=\\s*[,}\\]])`, 'gi'), '$1: "0%"')
+  out = out.replace(new RegExp(`\\b(${textKeys.join('|')})\\s*,(?=\\s*[,}\\]])`, 'gi'), '$1: ""')
+
+  return out
+}
+
+function isPreviewExecutableFile(path: string) {
+  return PREVIEW_EXECUTABLE_FILE_PATTERN.test(path)
+}
+
+function isPreviewJsonFile(path: string) {
+  return PREVIEW_JSON_FILE_PATTERN.test(path)
+}
+
+function isPreviewAssetFile(path: string) {
+  return PREVIEW_ASSET_FILE_PATTERN.test(path)
+}
+
+function buildPreviewJsonModule(content: string) {
+  try {
+    const parsed = JSON.parse(String(content || ""))
+    return `const __default_export = ${JSON.stringify(parsed, null, 2)}\n`
+  } catch (error) {
+    return `const __default_export = {}\n`
+  }
+}
+
+function buildPreviewAssetModule() {
+  return `const __default_export = {}\n`
+}
+
+function getPreviewSyntaxDiagnostics(content: string, filePath: string) {
+  const result = ts.transpileModule(String(content || ""), {
+    compilerOptions: {
+      allowJs: true,
+      allowSyntheticDefaultImports: true,
+      esModuleInterop: true,
+      jsx: ts.JsxEmit.ReactJSX,
+      module: ts.ModuleKind.ESNext,
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ES2020,
+    },
+    fileName: filePath,
+    reportDiagnostics: true,
+  })
+
+  return (result.diagnostics || []).filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
+}
+
+function formatPreviewDiagnostic(diagnostic: ts.Diagnostic) {
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")
+
+  if (!diagnostic.file || typeof diagnostic.start !== "number") {
+    return message
+  }
+
+  const position = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
+  return `${diagnostic.file.fileName}:${position.line + 1}:${position.character + 1} ${message}`
+}
+
+function hasClientSafeRewriteMarkers(content: string) {
+  return (
+    /\bawait\b|export\s+default\s+async|async\s+function|new\s+Promise\b|Promise\.|\btop-level-await\b|\bimport\(/i.test(content) ||
+    /next\/headers|next\/cookies|@\/lib\/db|@prisma\/client|prisma|node:fs|node:path|fs\b|path\b|process\.env/i.test(content)
+  )
+}
+
+function buildPreviewFallbackModule(filePath: string, detail: string) {
+  return `export default function PreviewFallback() {\n  return (\n    <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-dashed border-border bg-background p-6 text-center">\n      <div className="max-w-xl space-y-2">\n        <h2 className="text-base font-semibold text-foreground">Preview disabled for ${JSON.stringify(filePath)}</h2>\n        <p className="text-sm text-muted-foreground">${JSON.stringify(detail)}</p>\n      </div>\n    </div>\n  )\n}\n`
+}
+
+function buildPreviewExecutableCandidates(content: string, filePath: string) {
+  const original = String(content || "")
+  const candidates = new Set<string>()
+
+  const addCandidate = (value: string) => {
+    const normalized = String(value || "")
+    if (!normalized) return
+    candidates.add(normalized)
+  }
+
+  const repaired = repairCommonObjectLiteralMistakes(original)
+  const arraySanitized = sanitizeInlineArrays(original)
+  const repairedArraySanitized = repairCommonObjectLiteralMistakes(arraySanitized)
+  const arrayRepaired = sanitizeInlineArrays(repaired)
+  const clientSafe = hasClientSafeRewriteMarkers(original) ? makeClientSafeContent(original) : ""
+  const clientSafeRepaired = clientSafe ? repairCommonObjectLiteralMistakes(clientSafe) : ""
+  const clientSafeArraySanitized = clientSafe ? sanitizeInlineArrays(clientSafe) : ""
+  const clientSafeArrayRepaired = clientSafeArraySanitized ? repairCommonObjectLiteralMistakes(clientSafeArraySanitized) : ""
+
+  if (clientSafe) {
+    addCandidate(clientSafe)
+    addCandidate(clientSafeRepaired)
+    addCandidate(clientSafeArraySanitized)
+    addCandidate(clientSafeArrayRepaired)
+  }
+
+  addCandidate(original)
+  addCandidate(repaired)
+  addCandidate(arraySanitized)
+  addCandidate(repairedArraySanitized)
+  addCandidate(arrayRepaired)
+
+  return [...candidates]
+}
+
+function makeClientSafeContent(content: string) {
+  let s = String(content)
+  const previewMockObject = `({
+    id: "preview",
+    name: "Preview item",
+    title: "Preview item",
+    slug: "preview-item",
+    description: "Preview data generated for browser sandbox.",
+    content: "Preview data",
+    image: "/placeholder.svg",
+    price: 0,
+    amount: 0,
+    value: 0,
+    trend: "0%",
+    features: [],
+    items: [],
+    ingredients: [],
+    reviews: [],
+    testimonials: [],
+    gallery: [],
+    beforeAfter: [],
+    cta: { label: "Preview CTA", href: "#" },
+  })`
+
+  if (!/['"]use client['"]/.test(s)) {
+    s = '"use client"\n\n' + s
+  }
+
+  try {
+    const fetchGlob = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+fetch\(\s*([^)]*)\s*\)\s*;?/g
+    let match: RegExpExecArray | null
+    const replacements: Array<{ orig: string; name: string; args: string }> = []
+
+    while ((match = fetchGlob.exec(s)) !== null) {
+      replacements.push({ orig: match[0], name: match[1], args: match[2] })
+    }
+
+    for (const replacement of replacements) {
+      const name = replacement.name
+      const args = replacement.args
+      const stateName = `__sw_preview_${name}`
+      const setter = `set${name.charAt(0).toUpperCase()}${name.slice(1)}`
+      const hookSnippet = `const [${stateName}, ${setter}] = React.useState(null);\nReact.useEffect(()=>{let mounted=true;(async ()=>{try{const __sw_res = await fetch(${args});const __sw_json = await __sw_res.json();if(mounted)${setter}(__sw_json);}catch(e){} })();return ()=>{mounted=false};},[]);\n`
+
+      s = s.replace(replacement.orig, hookSnippet)
+
+      try {
+        const jsonAssignRegex = new RegExp('(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*await\\s+' + name + '\\.(?:json|text|blob)\\(\\)\\s*;?', 'g')
+        let jsonMatch: RegExpExecArray | null
+        const jsonVars: string[] = []
+
+        while ((jsonMatch = jsonAssignRegex.exec(s)) !== null) {
+          jsonVars.push(jsonMatch[1])
+        }
+
+        for (const jsonVar of jsonVars) {
+          s = s.replace(new RegExp('(?:const|let|var)\\s+' + jsonVar + '\\s*=\\s*await\\s+' + name + '\\.(?:json|text|blob)\\(\\)\\s*;?\\s*', 'g'), '')
+          s = s.replace(new RegExp('\\b' + jsonVar + '\\b', 'g'), stateName)
+        }
+      } catch (error) {
+        // best-effort only
+      }
+
+      s = s.replace(new RegExp('\\b' + name + '\\b', 'g'), stateName)
+    }
+  } catch (error) {
+    // best-effort only
+  }
+
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*fs[^'"]*['"];?\s*/gi, '')
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*path[^'"]*['"];?\s*/gi, '')
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*prisma[^'"]*['"];?\s*/gi, '')
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*@prisma\/client[^'"]*['"];?\s*/gi, '')
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*node:fs[^'"]*['"];?\s*/gi, '')
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*node:path[^'"]*['"];?\s*/gi, '')
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*next\/headers[^'"]*['"];?\s*/gi, '')
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*next\/cookies[^'"]*['"];?\s*/gi, '')
+  s = s.replace(/import\s+[\s\S]*?from\s+['"][^'"]*@\/lib\/db[^'"]*['"];?\s*/gi, '')
+
+  s = s.replace(
+    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+prisma\.[A-Za-z0-9_$]+\.(findFirst|findUnique|findMany|count|aggregate)\([\s\S]*?\)\s*;?/g,
+    (_full, bindingName: string, method: string) => {
+      if (method === "findMany") {
+        return `const ${bindingName} = [];`
+      }
+
+      if (method === "count") {
+        return `const ${bindingName} = 0;`
+      }
+
+      return `const ${bindingName} = ${previewMockObject};`
+    }
+  )
+
+  s = s.replace(/export\s+async\s+function\s+(getServerSideProps|getStaticProps|getInitialProps|generateStaticParams|generateMetadata)\s*\([\s\S]*?\)\s*\{[\s\S]*?\}\s*/gi, '')
+  s = s.replace(/export\s+const\s+(dynamic|revalidate|runtime)\s*=\s*[^;\n]+;?\s*/gi, '')
+  s = s.replace(/export\s+default\s+async\s+function/gi, 'export default function')
+  s = s.replace(/export\s+default\s+async\s*\(/gi, 'export default (')
+  s = s.replace(/\basync\s+(function\s+[A-Za-z0-9_$]+\s*\()/gi, '$1')
+  s = s.replace(/\bawait\s+(\([^\)\n]+\)|[^\s;\n]+)/g, 'null')
+  s = s.replace(/new\s+Promise\s*\([\s\S]*?\)/g, 'null')
+  s = s.replace(/Promise\.[A-Za-z0-9_$]+\s*\(/g, '/*Promise*/ (function(){return Promise})(')
+  s = s.replace(/\bprocess\.env\.[A-Za-z0-9_]+/g, 'undefined')
+
+  try {
+    s = sanitizeInlineArrays(s)
+    s = repairCommonObjectLiteralMistakes(s)
+  } catch (error) {
+    // best-effort only
+  }
+
+  return s
+}
+
+function normalizeAttachments(attachments: PromptAttachment[] | undefined): PromptAttachment[] {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return []
+  }
+
+  const cleaned = attachments.slice(0, MAX_ATTACHMENTS).map((attachment) => ({
+    ...attachment,
+    name: attachment.name.trim().slice(0, 180),
+    mimeType: (attachment.mimeType || "application/octet-stream").trim().slice(0, 120),
+    content: attachment.content || "",
+  }))
+
+  for (const attachment of cleaned) {
+    if (attachment.size > MAX_ATTACHMENT_SIZE_BYTES) {
+      throw new Error(`Attachment "${attachment.name}" exceeds ${Math.floor(MAX_ATTACHMENT_SIZE_BYTES / (1024 * 1024))}MB limit.`)
+    }
+
+    if (attachment.kind === "image" && !attachment.content.startsWith("data:")) {
+      throw new Error(`Attachment "${attachment.name}" has invalid image payload.`)
+    }
+  }
+
+  return cleaned
+}
+
+function appendAttachmentsToPrompt(prompt: string, attachments: PromptAttachment[]) {
+  if (attachments.length === 0) {
+    return prompt
+  }
+
+  let usedChars = 0
+  const lines = attachments
+    .map((attachment, index) => {
+      if (usedChars >= MAX_ATTACHMENT_CONTEXT_CHARS) {
+        return ""
+      }
+
+      const header = `Attachment ${index + 1}: ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes)`
+
+      if (attachment.kind === "image") {
+        const preview = attachment.content.slice(0, 1400)
+        usedChars += preview.length
+        return `${header}\nKind: image\nDataURL preview:\n${preview}`
+      }
+
+      const textBody = truncateText(attachment.content, 5000)
+      usedChars += textBody.length
+      return `${header}\nKind: ${attachment.kind}\nContent:\n${textBody}`
+    })
+    .filter(Boolean)
+    .join("\n\n")
+
+  if (!lines) {
+    return prompt
+  }
+
+  return `${prompt}\n\nAdditional user attachments (treat these as source context):\n${lines}`
+}
+
 function enforceFullStackRequirement(prompt: string) {
   return [
     prompt,
     "Hard requirement: Generate FULL-STACK Next.js app output, not frontend-only.",
     "Always include meaningful frontend UI + backend API route(s) + data model/service layer when applicable.",
+    "If this prompt is about an existing project, patch the existing files first, preserve working structure, and add new files only when needed.",
+    "Keep changes coherent and iterative. Prefer the smallest useful edit set that moves the project forward.",
     "Return ONLY valid JSON object with files array.",
+    "IMPORTANT for preview: For any frontend/app files intended to run in the browser preview, do NOT use async React components, top-level await, or server-only APIs. Additionally, include a preview-safe variant for each frontend file under the 'preview/' path (for example 'preview/app/dashboard/page.tsx') or as a sibling file with '.preview' before the extension (e.g., 'app/dashboard/page.preview.tsx'). The preview variant must be a client component (include the 'use client' directive), must avoid server-only imports (fs, server-only libs), must avoid top-level await, and should perform data fetching via client-side patterns (useEffect) or call included API routes. Preview variants should be self-contained and renderable in a plain browser iframe using React UMD + Babel. If providing a preview variant is not possible, include clear instructions in a README file explaining how to make the file previewable.",
   ].join("\n\n")
 }
 
@@ -590,7 +1083,9 @@ function buildContinuationPrompt({
   return [
     `Latest user request:\n${latestUserPrompt}`,
     "Mode: Continue existing project. Do NOT restart from scaffold.",
-    "If possible, edit existing files and add new files only when needed.",
+    "Patch-first rule: edit existing files before adding new ones. Keep the current project structure stable unless a change is necessary.",
+    "If a file already solves part of the request, refine that file instead of creating a duplicate version.",
+    "When you can, return only the files you actually changed.",
     "Return ONLY valid JSON object using schema {\"message\":\"...\",\"files\":[{\"path\":\"...\",\"language\":\"...\",\"content\":\"...\"}]}.",
     "In files array, include only files you changed or created.",
     `Current project file tree (${existingFiles.length} files):\n${fileTree}`,
