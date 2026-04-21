@@ -56,10 +56,14 @@ const normalizeAppUrl = (value: string) => {
 
 const OPENAI_DEFAULT_MODEL = getEnv("OPENAI_DEFAULT_MODEL", "OPENAI_FALLBACK_MODEL") || "gpt-4o-mini"
 const OPENAI_FALLBACK_MODEL = getEnv("OPENAI_FALLBACK_MODEL") || OPENAI_DEFAULT_MODEL
+const databaseUrl =
+  process.env.NODE_ENV === "production"
+    ? getEnv("TURSO_DATABASE_URL") || getEnv("DATABASE_URL")
+    : getEnv("DATABASE_URL") || getEnv("TURSO_DATABASE_URL")
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
-  databaseUrl: getEnv("DATABASE_URL"),
+  databaseUrl,
   nextAuthSecret: getEnv("NEXTAUTH_SECRET"),
   nextAuthUrl: getEnv("NEXTAUTH_URL"),
   googleClientId: getEnv("GOOGLE_CLIENT_ID"),
@@ -109,7 +113,7 @@ export const env = {
 if (env.nodeEnv === "production") {
   const missing: string[] = []
 
-  if (!env.databaseUrl) missing.push("DATABASE_URL")
+  if (!env.databaseUrl) missing.push("DATABASE_URL or TURSO_DATABASE_URL")
   if (!env.nextAuthSecret) missing.push("NEXTAUTH_SECRET")
   if (!env.googleClientId) missing.push("GOOGLE_CLIENT_ID")
   if (!env.googleClientSecret) missing.push("GOOGLE_CLIENT_SECRET")
