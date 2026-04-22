@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,6 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Zap, Chrome } from "lucide-react"
+import { startCredentialsSignIn, startGoogleSignIn } from "@/lib/auth-client"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -54,15 +54,15 @@ export default function SignupPage() {
         return
       }
 
-      const result = await signIn("credentials", {
-        email: email.trim().toLowerCase(),
+      const result = await startCredentialsSignIn(
+        email.trim().toLowerCase(),
         password,
-        redirect: false,
-      })
+        "/dashboard"
+      )
 
-      if (result?.error) {
+      if (result.error || !result.ok) {
         setError("Failed to create account")
-      } else if (result?.ok) {
+      } else if (result.url) {
         router.push("/dashboard")
       }
     } catch (err) {
@@ -74,8 +74,17 @@ export default function SignupPage() {
 
   const handleGoogleSignup = async () => {
     setIsLoading(true)
+    setError("")
     try {
-      await signIn("google", { redirectTo: "/dashboard" })
+      const result = await startGoogleSignIn("/dashboard")
+
+      if (result.url) {
+        window.location.href = result.url.toString()
+        return
+      }
+
+      setError("Failed to sign up with Google")
+      setIsLoading(false)
     } catch (err) {
       setError("Failed to sign up with Google")
       setIsLoading(false)

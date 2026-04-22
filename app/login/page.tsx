@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +9,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Zap, Chrome } from "lucide-react"
+import { startCredentialsSignIn, startGoogleSignIn } from "@/lib/auth-client"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -24,15 +24,15 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      const result = await signIn("credentials", {
-        email: email.trim().toLowerCase(),
+      const result = await startCredentialsSignIn(
+        email.trim().toLowerCase(),
         password,
-        redirect: false,
-      })
+        "/dashboard"
+      )
 
-      if (result?.error) {
+      if (result.error || !result.ok) {
         setError("Invalid email or password")
-      } else if (result?.ok) {
+      } else if (result.url) {
         router.push("/dashboard")
       }
     } catch (err) {
@@ -44,8 +44,17 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     setIsLoading(true)
+    setError("")
     try {
-      await signIn("google", { redirectTo: "/dashboard" })
+      const result = await startGoogleSignIn("/dashboard")
+
+      if (result.url) {
+        window.location.href = result.url.toString()
+        return
+      }
+
+      setError("Failed to sign in with Google")
+      setIsLoading(false)
     } catch (err) {
       setError("Failed to sign in with Google")
       setIsLoading(false)

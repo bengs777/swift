@@ -37,6 +37,8 @@ setInterval(() => {
 }, 5 * 60 * 1000)
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
+  secret: env.nextAuthSecret,
   providers: [
     Google({
       clientId: env.googleClientId,
