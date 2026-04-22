@@ -5,8 +5,12 @@ import { env } from '@/lib/env'
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
-const prismaAdapter =
+const shouldUseLibSqlAdapter = /^(libsql|libsqls|https?):\/\//i.test(
   env.databaseUrl
+)
+
+const prismaAdapter =
+  env.databaseUrl && shouldUseLibSqlAdapter
     ? new PrismaLibSQL(
         createClient({
           url: env.databaseUrl,

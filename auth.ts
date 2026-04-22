@@ -136,11 +136,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // Clear cache untuk email ini agar data terbaru ter-fetch
           userIdCache.delete(user.email)
         }
-        return true
       } catch (error) {
-        console.error("[v0] Auth signIn error:", error)
-        return false
+        console.error("[v0] Auth signIn sync warning:", error)
       }
+
+      return true
     },
   },
   events: {

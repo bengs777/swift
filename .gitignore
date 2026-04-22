@@ -17,3 +17,4 @@ node_modules
 .DS_Store
 *.tsbuildinfo
 prisma/dev.db
+dev.db
