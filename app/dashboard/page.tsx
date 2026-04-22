@@ -9,6 +9,22 @@ import { Button } from "@/components/ui/button"
 import { ProjectList } from "@/components/dashboard/project-list"
 import { NewProjectTrigger } from "@/components/dashboard/new-project-trigger"
 
+type DashboardUsageLog = {
+  id: string
+  model: string
+  provider: string
+  cost: number
+  prompt: string
+  status: string
+  errorMessage: string | null
+  createdAt: Date
+}
+
+type DashboardWorkspaceOption = {
+  id: string
+  name: string
+}
+
 export default async function DashboardPage() {
   const session = await auth()
 
@@ -16,39 +32,85 @@ export default async function DashboardPage() {
     redirect("/login")
   }
 
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    include: {
-      usageLogs: {
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      },
-      workspaces: true,
-      memberships: {
-        include: {
-          workspace: true,
-        },
-      },
-    },
-  })
+  let balance = 0
+  let usageLogs: DashboardUsageLog[] = []
+  let workspaceOptions: DashboardWorkspaceOption[] = []
+  let hasDataWarning = false
 
-  if (!user) {
-    redirect("/login")
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: {
+        id: true,
+        balance: true,
+      },
+    })
+
+    if (user) {
+      balance = user.balance
+
+      const [usageLogsResult, membershipsResult] = await Promise.allSettled([
+        prisma.usageLog.findMany({
+          where: { userId: user.id },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          select: {
+            id: true,
+            model: true,
+            provider: true,
+            cost: true,
+            prompt: true,
+            status: true,
+            errorMessage: true,
+            createdAt: true,
+          },
+        }),
+        prisma.workspaceMember.findMany({
+          where: { userId: user.id },
+          include: {
+            workspace: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        }),
+      ])
+
+      if (usageLogsResult.status === "fulfilled") {
+        usageLogs = usageLogsResult.value
+      } else {
+        hasDataWarning = true
+        console.error("[dashboard] Failed to load usage logs:", usageLogsResult.reason)
+      }
+
+      if (membershipsResult.status === "fulfilled") {
+        workspaceOptions = membershipsResult.value.map((membership) => ({
+          id: membership.workspace.id,
+          name: membership.workspace.name,
+        }))
+      } else {
+        hasDataWarning = true
+        console.error("[dashboard] Failed to load workspace memberships:", membershipsResult.reason)
+      }
+    } else {
+      hasDataWarning = true
+    }
+  } catch (error) {
+    hasDataWarning = true
+    console.error("[dashboard] Failed to load dashboard data:", error)
   }
 
-  const totalSpent = user.usageLogs
+  const totalSpent = usageLogs
     .filter((log) => log.status === "completed")
     .reduce((sum, log) => sum + log.cost, 0)
 
-  const totalRefunded = user.usageLogs
+  const totalRefunded = usageLogs
     .filter((log) => log.status === "refunded")
     .reduce((sum, log) => sum + log.cost, 0)
 
-  const successfulRequests = user.usageLogs.filter((log) => log.status === "completed").length
-  const workspaceOptions = user.memberships.map((membership) => ({
-    id: membership.workspace.id,
-    name: membership.workspace.name,
-  }))
+  const successfulRequests = usageLogs.filter((log) => log.status === "completed").length
   const defaultWorkspaceId = workspaceOptions[0]?.id
 
   return (
@@ -62,25 +124,41 @@ export default async function DashboardPage() {
         </div>
         <div className="flex items-center gap-3">
           <Badge variant="secondary" className="px-3 py-1 text-sm">
-            Balance: Rp {user.balance.toLocaleString("id-ID")}
+            Balance: Rp {balance.toLocaleString("id-ID")}
           </Badge>
           <Button asChild variant="outline" size="sm">
             <Link href="/dashboard/settings?tab=billing">
               Top up
             </Link>
           </Button>
-          <NewProjectTrigger
-            workspaces={workspaceOptions}
-            defaultWorkspaceId={defaultWorkspaceId}
-          />
+          {workspaceOptions.length > 0 ? (
+            <NewProjectTrigger
+              workspaces={workspaceOptions}
+              defaultWorkspaceId={defaultWorkspaceId}
+            />
+          ) : (
+            <Button variant="outline" size="sm" disabled>
+              New Project
+            </Button>
+          )}
         </div>
       </div>
+
+      {hasDataWarning && (
+        <div className="px-6 pt-6">
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="px-4 py-3 text-sm text-muted-foreground">
+              Dashboard data belum lengkap. Halaman tetap dibuka, tapi beberapa data akun belum bisa dimuat dari database.
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Current Balance"
           description="Available wallet balance"
-          value={`Rp ${user.balance.toLocaleString("id-ID")}`}
+          value={`Rp ${balance.toLocaleString("id-ID")}`}
         />
         <SummaryCard
           title="Successful Requests"
@@ -108,13 +186,13 @@ export default async function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {user.usageLogs.length === 0 ? (
+            {usageLogs.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No usage logs yet. Send your first model request to start tracking activity.
               </p>
             ) : (
               <div className="space-y-3">
-                {user.usageLogs.map((log) => (
+                {usageLogs.map((log) => (
                   <div
                     key={log.id}
                     className="rounded-xl border border-border bg-card/50 p-4"
