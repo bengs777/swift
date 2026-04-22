@@ -99,8 +99,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       if (session.user) {
+        const userEmail = session.user.email ?? token.email
+
+        if (userEmail) {
+          await UserService.grantMonthlyFreeCreditsIfNeeded(userEmail)
+        }
+
         const databaseUserId = await resolveDatabaseUserId(
-          session.user.email ?? token.email
+          userEmail
         )
 
         session.user.id = (databaseUserId ?? token.id) as string
@@ -117,21 +123,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       try {
         // Only handle Google OAuth
         if (account?.provider === "google" && user.email) {
-          // Gunakan upsert untuk menggabungkan create + update dalam satu query
-          await prisma.user.upsert({
-            where: { email: user.email },
-            update: {
-              name: user.name || undefined,
-              image: user.image || undefined,
-              updatedAt: new Date(),
-            },
-            create: {
-              email: user.email,
-              name: user.name || "",
-              image: user.image || null,
-              // Tambahkan field workspace jika diperlukan
-            },
-          })
+          await UserService.createUserWithWorkspaceIfMissing(
+            user.email,
+            user.name || user.email.split("@")[0],
+            user.image || null
+          )
 
           // Clear cache untuk email ini agar data terbaru ter-fetch
           userIdCache.delete(user.email)

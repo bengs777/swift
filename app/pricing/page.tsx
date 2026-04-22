@@ -11,7 +11,7 @@ const plans = [
     cta: "Mulai Gratis",
     href: "/signup",
     features: [
-      "100.000 credits per bulan",
+      "5.000 credits per bulan",
       "Maksimal 3 project aktif",
       "Template dasar",
       "Komunitas support",
@@ -53,7 +53,7 @@ export default function PricingPage() {
         <div className="mx-auto max-w-2xl text-center">
           <h1 className="text-4xl font-bold tracking-tight text-foreground">Pricing yang jelas dari awal</h1>
           <p className="mt-4 text-muted-foreground">
-            Mulai gratis, upgrade saat sudah dapat traction. Tidak ada biaya setup.
+            Mulai gratis dengan 5.000 credits per bulan. Upgrade saat sudah dapat traction. Tidak ada biaya setup.
           </p>
         </div>
 

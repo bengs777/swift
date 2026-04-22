@@ -259,7 +259,7 @@ export function BillingPanel() {
 
   const currentBalance = overview?.balance ?? 0
   const topupMinimum = overview?.topupMinimum ?? 2000
-  const welcomeBonusGranted = Boolean(overview?.welcomeBonusGrantedAt)
+  const freeCreditsGranted = Boolean(overview?.welcomeBonusGrantedAt)
 
   return (
     <div className="space-y-6">
@@ -280,19 +280,21 @@ export function BillingPanel() {
                 <p className="text-sm text-muted-foreground">Current balance</p>
                 <p className="text-3xl font-semibold text-foreground">{formatCurrency(currentBalance)}</p>
               </div>
-              <Badge variant={welcomeBonusGranted ? "secondary" : "outline"} className="shrink-0">
-                {welcomeBonusGranted ? `Welcome bonus ${formatCurrency(overview?.welcomeBonusAmount || 5000)}` : "Bonus belum diberikan"}
+              <Badge variant={freeCreditsGranted ? "secondary" : "outline"} className="shrink-0">
+                {freeCreditsGranted
+                  ? `Free credits bulan ini ${formatCurrency(overview?.welcomeBonusAmount || 5000)}`
+                  : "Free credits bulan ini belum masuk"}
               </Badge>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <InfoPill label="Minimum top up" value={formatCurrency(topupMinimum)} />
               <InfoPill label="Payment gateway" value="Pakasir + Crypto" />
-              <InfoPill label="New account bonus" value={formatCurrency(overview?.welcomeBonusAmount || 5000)} />
+              <InfoPill label="Free plan credits" value={formatCurrency(overview?.welcomeBonusAmount || 5000)} />
             </div>
 
             <div className="rounded-xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-              Akun baru hanya menerima bonus sekali. Setelah itu, top up bisa mulai dari Rp 2.000 (Pakasir) atau $1 USD (Crypto).
+              Akun Free mendapat 5.000 credits per bulan. Bonus awal 5.000 credits diberikan saat pendaftaran. Setelah itu, top up bisa mulai dari Rp 2.000 (Pakasir) atau $1 USD (Crypto).
             </div>
           </CardContent>
         </Card>
@@ -503,7 +505,7 @@ export function BillingPanel() {
               Balance ledger
             </CardTitle>
             <CardDescription>
-              Riwayat perubahan saldo untuk bonus, top up, usage, dan refund.
+              Riwayat perubahan saldo untuk bonus awal, credits bulanan, top up, usage, dan refund.
             </CardDescription>
           </CardHeader>
           <CardContent>
