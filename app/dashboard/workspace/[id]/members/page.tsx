@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,13 +23,8 @@ interface Member {
   }
 }
 
-interface MembersPageProps {
-  params: {
-    id: string
-  }
-}
-
-export default function MembersPage({ params }: MembersPageProps) {
+export default function MembersPage() {
+  const params = useParams() as { id: string }
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")

@@ -349,13 +349,13 @@ export default async function DashboardPage() {
 
 function MetricCard({
   icon: Icon,
-  title,
-  description,
+  label,
+  detail,
   value,
 }: {
   icon: LucideIcon
-  title: string
-  description: string
+  label: string
+  detail: string
   value: string
 }) {
   return (
@@ -363,9 +363,9 @@ function MetricCard({
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-sm text-muted-foreground">{description}</p>
+            <p className="text-sm text-muted-foreground">{detail}</p>
             <div className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</div>
-            <p className="mt-1 text-sm font-medium text-foreground/90">{title}</p>
+            <p className="mt-1 text-sm font-medium text-foreground/90">{label}</p>
           </div>
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/40 text-foreground">
             <Icon className="h-5 w-5" />

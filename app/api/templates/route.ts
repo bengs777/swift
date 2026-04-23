@@ -161,7 +161,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ templates: filteredTemplates })
 }
 
-export async function GET_SINGLE(
+async function getSingleTemplate(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {

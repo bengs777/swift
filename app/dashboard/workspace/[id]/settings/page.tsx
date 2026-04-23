@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,13 +9,8 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 
-interface WorkspaceSettingsPageProps {
-  params: {
-    id: string
-  }
-}
-
-export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageProps) {
+export default function WorkspaceSettingsPage() {
+  const params = useParams() as { id: string }
   const [workspaceName, setWorkspaceName] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
