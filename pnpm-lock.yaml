@@ -18,7 +18,7 @@ importers:
         specifier: ^5.22.0
         version: 5.22.0(@libsql/client@0.8.1)
       '@prisma/client':
-        specifier: ^5.10.0
+        specifier: ^5.22.0
         version: 5.22.0(prisma@5.22.0)
       '@radix-ui/react-accordion':
         specifier: 1.2.12
@@ -199,7 +199,7 @@ importers:
         specifier: ^8.5
         version: 8.5.6
       prisma:
-        specifier: ^5.10.0
+        specifier: ^5.22.0
         version: 5.22.0
       tailwindcss:
         specifier: ^4.2.0
