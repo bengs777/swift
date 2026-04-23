@@ -23,7 +23,7 @@ export function NewProjectTrigger({
 
   return (
     <>
-      <Button onClick={() => setOpen(true)} className="gap-2">
+      <Button onClick={() => setOpen(true)} className="gap-2 rounded-full px-4 shadow-sm shadow-black/10">
         <Plus className="h-4 w-4" />
         New Project
       </Button>

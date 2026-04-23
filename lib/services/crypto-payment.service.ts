@@ -1,6 +1,7 @@
 import { ethers } from "ethers"
 import { env } from "@/lib/env"
 import { prisma } from "@/lib/db/client"
+import { BillingService } from "@/lib/services/billing.service"
 
 export type CryptoChain = "bsc" | "base"
 
@@ -244,44 +245,31 @@ export class CryptoPaymentService {
         return false // Still waiting for confirmations
       }
 
-      // Update TopUpOrder
-      await prisma.topUpOrder.update({
-        where: { id: topUpOrderId },
+      const finalized = await BillingService.finalizeTopUpOrder({
+        reference: topUpOrder.reference,
+        providerReference: txHash,
+        response: JSON.stringify({
+          txHash,
+          chainId: topUpOrder.chainId,
+          tokenAmount: topUpOrder.tokenAmount,
+        }),
+        amount: topUpOrder.amount,
+        paidAt: new Date(),
+      })
+
+      await prisma.cryptoPayment.update({
+        where: { id: topUpOrder.cryptoPayment.id },
         data: {
-          status: "paid",
-          paidAt: new Date(),
+          status: "confirmed",
+          confirmations: verification.confirmations,
+          blockNumber: undefined,
+          confirmedAt: new Date(),
           transactionHash: txHash,
         },
       })
 
-      // Create billing transaction
-      const balanceIncrease = topUpOrder.amount
-      const user = await prisma.user.findUnique({
-        where: { id: topUpOrder.userId },
-        select: { balance: true },
-      })
-
-      if (user) {
-        const newBalance = user.balance + balanceIncrease
-        await prisma.user.update({
-          where: { id: topUpOrder.userId },
-          data: { balance: newBalance },
-        })
-
-        await prisma.billingTransaction.create({
-          data: {
-            userId: topUpOrder.userId,
-            kind: "topup",
-            direction: "in",
-            amount: balanceIncrease,
-            balanceBefore: user.balance,
-            balanceAfter: newBalance,
-            reference: topUpOrder.reference,
-            provider: "crypto",
-            providerReference: txHash,
-            description: `Crypto payment (${topUpOrder.chainId === 56 ? "BNB" : "ETH"}) - ${topUpOrder.tokenAmount} tokens`,
-          },
-        })
+      if (finalized.order.status !== "paid") {
+        throw new Error("FAILED_TO_FINALIZE_CRYPTO_PAYMENT")
       }
 
       return true

@@ -2,18 +2,24 @@ import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { auth } from "@/auth"
+import { TOPUP_MINIMUM_IDR } from "@/lib/billing/constants"
+import { isBillingPlanId } from "@/lib/billing/plans"
 import { env } from "@/lib/env"
 import { prisma } from "@/lib/db/client"
 import { BillingService } from "@/lib/services/billing.service"
 import { PakasirService } from "@/lib/services/pakasir.service"
 
-const TOPUP_MINIMUM = 2000
+const TOPUP_MINIMUM = TOPUP_MINIMUM_IDR
 const TOPUP_MAXIMUM = 50_000_000
+const PURCHASE_TYPES = ["topup", "subscription"] as const
 
 const TopupSchema = z.object({
   amount: z.coerce.number().int().min(TOPUP_MINIMUM).max(TOPUP_MAXIMUM),
   note: z.string().trim().max(160).optional().default(""),
   source: z.string().trim().max(80).optional().default("billing-panel"),
+  purchaseType: z.enum(PURCHASE_TYPES).optional().default("topup"),
+  planId: z.string().trim().optional(),
+  workspaceId: z.string().trim().optional(),
 })
 
 function buildReference() {
@@ -52,6 +58,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
+    if (body.purchaseType === "subscription") {
+      if (!isBillingPlanId(body.planId) || body.planId === "free") {
+        return NextResponse.json({ error: "Invalid billing plan" }, { status: 400 })
+      }
+
+      if (!body.workspaceId) {
+        return NextResponse.json({ error: "Workspace is required for plan purchases" }, { status: 400 })
+      }
+
+      const membership = await prisma.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: body.workspaceId,
+            userId: user.id,
+          },
+        },
+        select: {
+          id: true,
+        },
+      })
+
+      if (!membership) {
+        return NextResponse.json({ error: "Workspace not found" }, { status: 404 })
+      }
+    }
+
     if (body.amount < TOPUP_MINIMUM) {
       return NextResponse.json(
         { error: `Top up minimum is Rp ${TOPUP_MINIMUM.toLocaleString("id-ID")}` },
@@ -85,6 +117,9 @@ export async function POST(request: NextRequest) {
       payload: JSON.stringify({
         source: body.source,
         note: body.note,
+        purchaseType: body.purchaseType,
+        planId: body.planId || null,
+        workspaceId: body.workspaceId || null,
         requestedAmount: body.amount,
       }),
       status: "pending",
@@ -114,6 +149,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         topupMinimum: TOPUP_MINIMUM,
+        purchaseType: body.purchaseType,
+        planId: body.planId || null,
         order: {
           id: order.id,
           reference: order.reference,

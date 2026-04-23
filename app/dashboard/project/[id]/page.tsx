@@ -93,6 +93,8 @@ export default function EditorPage() {
   const [errorLogs, setErrorLogs] = useState<ErrorLogEntry[]>([])
   const [customDomain, setCustomDomain] = useState<string | null>(null)
   const [domainVerified, setDomainVerified] = useState<boolean>(false)
+  const [subscriptionPlan, setSubscriptionPlan] = useState<string>("free")
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string>("active")
 
   useEffect(() => {
     if (generatedFiles.length === 0) {
@@ -172,6 +174,8 @@ export default function EditorPage() {
         setCurrentVersion(data.project?.history?.length || (files.length > 0 ? 1 : 0))
         setCustomDomain(data.project?.customDomain || null)
         setDomainVerified(Boolean(data.project?.domainVerified))
+        setSubscriptionPlan(data.project?.workspace?.subscription?.plan || "free")
+        setSubscriptionStatus(data.project?.workspace?.subscription?.status || "active")
       } catch (error) {
         if (!isMounted) return
         const message = error instanceof Error ? error.message : "Failed to load project"
@@ -771,6 +775,8 @@ export default function EditorPage() {
         projectId={projectId}
         currentVersion={currentVersion}
         onExportZip={handleExportZip}
+        subscriptionPlan={subscriptionPlan}
+        subscriptionStatus={subscriptionStatus}
         onDeploy={handleDeployToVercel}
         isExporting={isExporting}
         isDeploying={isDeploying}

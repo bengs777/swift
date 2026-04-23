@@ -2,13 +2,20 @@ import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { auth } from "@/auth"
+import { MIN_CRYPTO_PAYMENT_USD_CENTS } from "@/lib/billing/constants"
+import { isBillingPlanId } from "@/lib/billing/plans"
 import { env } from "@/lib/env"
 import { prisma } from "@/lib/db/client"
 import { CryptoPaymentService } from "@/lib/services/crypto-payment.service"
 
 const CreateCryptoPaymentSchema = z.object({
-  amountInUsd: z.number().int().min(12).max(50_000_000), // 0.12 USD to 500K USD
+  amountInUsd: z.number().int().min(MIN_CRYPTO_PAYMENT_USD_CENTS).max(50_000_000),
   chainId: z.number().refine((v) => [56, 8453].includes(v), "Only BSC (56) and Base (8453) supported"),
+  purchaseType: z.enum(["topup", "subscription"]).optional().default("topup"),
+  planId: z.string().trim().optional(),
+  workspaceId: z.string().trim().optional(),
+  source: z.string().trim().max(80).optional().default("billing-panel"),
+  note: z.string().trim().max(160).optional().default(""),
 })
 
 function buildReference() {
@@ -40,6 +47,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
+    if (body.purchaseType === "subscription") {
+      if (!isBillingPlanId(body.planId) || body.planId === "free") {
+        return NextResponse.json({ error: "Invalid billing plan" }, { status: 400 })
+      }
+
+      if (!body.workspaceId) {
+        return NextResponse.json({ error: "Workspace is required for plan purchases" }, { status: 400 })
+      }
+
+      const membership = await prisma.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: body.workspaceId,
+            userId: user.id,
+          },
+        },
+        select: {
+          id: true,
+        },
+      })
+
+      if (!membership) {
+        return NextResponse.json({ error: "Workspace not found" }, { status: 404 })
+      }
+    }
+
     const reference = buildReference()
     const chainName = body.chainId === 56 ? "BNB Chain" : "Base"
 
@@ -66,6 +99,14 @@ export async function POST(request: NextRequest) {
         tokenAmount: paymentResponse.amountInToken,
         customerName: user.name || user.email,
         customerEmail: user.email,
+        payload: JSON.stringify({
+          source: body.source,
+          note: body.note,
+          purchaseType: body.purchaseType,
+          planId: body.planId || null,
+          workspaceId: body.workspaceId || null,
+          requestedAmount: body.amountInUsd,
+        }),
       },
     })
 
@@ -94,6 +135,8 @@ export async function POST(request: NextRequest) {
       chainId: paymentResponse.chainId,
       chainName: paymentResponse.chainName,
       expiresAt: topUpOrder.expiresAt,
+      purchaseType: body.purchaseType,
+      planId: body.planId || null,
     })
   } catch (error) {
     console.error("Crypto payment creation error:", error)

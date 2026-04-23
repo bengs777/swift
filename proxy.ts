@@ -4,6 +4,15 @@ import { NextResponse } from "next/server"
 export const proxy = auth((req) => {
   const { pathname } = req.nextUrl
 
+  const isAuthRoute =
+    pathname === "/api/auth" || pathname.startsWith("/api/auth/")
+  const isPublicAuthRoute =
+    pathname.startsWith("/auth") || pathname === "/login" || pathname === "/signup"
+
+  if (isAuthRoute || isPublicAuthRoute) {
+    return NextResponse.next()
+  }
+
   const protectedRoutes = [
     "/dashboard",
     "/api/projects",
@@ -27,6 +36,6 @@ export const proxy = auth((req) => {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|public|api/auth|auth|login|signup).*)",
+    "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 }

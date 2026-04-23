@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client"
+import { addDays } from "date-fns"
 import { prisma } from "@/lib/db/client"
+import { getBillingPlan, isSubscriptionPurchasePayload, parseBillingOrderPayload } from "@/lib/billing/plans"
 
 type BalanceTransactionInput = {
   userId: string
@@ -126,6 +128,8 @@ export class BillingService {
         },
       })
 
+      const purchasePayload = parseBillingOrderPayload(order?.payload)
+
       if (!order) {
         throw new Error("TOPUP_ORDER_NOT_FOUND")
       }
@@ -140,6 +144,67 @@ export class BillingService {
 
       if (typeof input.amount === "number" && input.amount !== order.amount) {
         throw new Error("TOPUP_AMOUNT_MISMATCH")
+      }
+
+      if (isSubscriptionPurchasePayload(purchasePayload)) {
+        const plan = getBillingPlan(purchasePayload.planId)
+
+        const membership = await tx.workspaceMember.findUnique({
+          where: {
+            workspaceId_userId: {
+              workspaceId: purchasePayload.workspaceId,
+              userId: order.userId,
+            },
+          },
+          select: {
+            id: true,
+          },
+        })
+
+        if (!membership) {
+          throw new Error("WORKSPACE_MEMBERSHIP_NOT_FOUND")
+        }
+
+        await tx.subscription.upsert({
+          where: { workspaceId: purchasePayload.workspaceId },
+          create: {
+            workspaceId: purchasePayload.workspaceId,
+            plan: plan.id,
+            status: "active",
+            tokensLimit: plan.tokensLimit,
+            tokensUsed: 0,
+            renewalDate: plan.renewalDays ? addDays(new Date(), plan.renewalDays) : null,
+            canceledAt: null,
+          },
+          update: {
+            plan: plan.id,
+            status: "active",
+            tokensLimit: plan.tokensLimit,
+            tokensUsed: 0,
+            renewalDate: plan.renewalDays ? addDays(new Date(), plan.renewalDays) : null,
+            canceledAt: null,
+          },
+        })
+
+        const updatedOrder = await tx.topUpOrder.update({
+          where: { reference: order.reference },
+          data: {
+            status: "paid",
+            paidAt: input.paidAt || new Date(),
+            providerReference: input.providerReference ?? order.providerReference ?? undefined,
+            paymentCode: input.paymentCode ?? order.paymentCode ?? undefined,
+            checkoutUrl: input.checkoutUrl ?? order.checkoutUrl ?? undefined,
+            response: input.response ?? order.response ?? undefined,
+          },
+        })
+
+        return {
+          order: updatedOrder,
+          alreadyProcessed: false,
+          creditedBalance: order.user.balance,
+          appliedPlan: plan.id,
+          workspaceId: purchasePayload.workspaceId,
+        }
       }
 
       const balanceBefore = order.user.balance

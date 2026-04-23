@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { formatDistanceToNow } from "date-fns"
-import { MoreHorizontal, ExternalLink, Trash2, Globe } from "lucide-react"
+import { FolderOpen, Globe, MoreHorizontal, ExternalLink, Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Spinner } from "@/components/ui/spinner"
 
 interface ProjectListProps {
   searchQuery: string
@@ -112,59 +111,90 @@ export function ProjectList({ searchQuery, workspaceId }: ProjectListProps) {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-48 items-center justify-center">
-        <Spinner />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={index}
+            className="rounded-3xl border border-border/70 bg-card/80 p-5 shadow-sm"
+          >
+            <div className="animate-pulse space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-2/3 rounded-full bg-muted" />
+                  <div className="h-3 w-full rounded-full bg-muted/80" />
+                  <div className="h-3 w-5/6 rounded-full bg-muted/80" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="h-6 w-20 rounded-full bg-muted" />
+                <div className="h-3 w-24 rounded-full bg-muted/80" />
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     )
   }
 
   if (error) {
     return (
-      <Alert variant="destructive">
+      <Alert variant="destructive" className="rounded-2xl border-destructive/30 bg-destructive/5">
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     )
   }
 
   if (filteredProjects.length === 0) {
+    const title = workspaceId ? "No projects found" : "Select a workspace"
+    const description = workspaceId
+      ? searchQuery
+        ? "Try a different search term or clear the filter to see more projects."
+        : "Create your first project to start building inside this workspace."
+      : "Choose a workspace in the sidebar before generating projects."
+
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-          <Globe className="h-6 w-6 text-muted-foreground" />
+      <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border/70 bg-muted/20 px-6 py-16 text-center">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-background text-muted-foreground shadow-sm">
+          <Globe className="h-7 w-7" />
         </div>
-        <h3 className="text-lg font-semibold text-foreground">No projects found</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {searchQuery ? "Try a different search term" : "Create your first project to get started"}
-        </p>
+        <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+        <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
     )
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {filteredProjects.map((project) => (
         <Link
           key={project.id}
           href={`/dashboard/project/${project.id}`}
-          className="group rounded-xl border border-border bg-card p-4 transition-colors hover:border-muted-foreground/30"
+          className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-border/70 bg-card/85 p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-border hover:shadow-lg"
         >
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <h3 className="font-semibold text-foreground group-hover:text-foreground">
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-1 gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <FolderOpen className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="truncate font-semibold text-foreground group-hover:text-foreground">
                 {project.name}
-              </h3>
-              <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                {project.description || "No description yet."}
-              </p>
+                </h3>
+                <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                  {project.description || "No description yet."}
+                </p>
+              </div>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
+              <DropdownMenuContent align="end" className="rounded-2xl">
+                <DropdownMenuItem asChild className="rounded-xl">
                   <Link href={`/dashboard/project/${project.id}`}>
                     <ExternalLink className="mr-2 h-4 w-4" />
                     Open Preview
@@ -172,7 +202,7 @@ export function ProjectList({ searchQuery, workspaceId }: ProjectListProps) {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  className="text-destructive"
+                  className="rounded-xl text-destructive"
                   disabled={deletingProjectId === project.id}
                   onClick={(event) => {
                     event.preventDefault()
@@ -185,8 +215,8 @@ export function ProjectList({ searchQuery, workspaceId }: ProjectListProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <div className="mt-4 flex items-center justify-between">
-            <Badge variant="secondary">
+          <div className="mt-5 flex items-center justify-between gap-3">
+            <Badge variant="secondary" className="rounded-full px-2.5 py-1 text-xs">
               {project.files.length > 0 ? `${project.files.length} files` : "draft"}
             </Badge>
             <span className="text-xs text-muted-foreground">

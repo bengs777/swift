@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { TOPUP_MINIMUM_IDR } from "@/lib/billing/constants"
 import { prisma } from "@/lib/db/client"
 
-const TOPUP_MINIMUM = 2000
+const TOPUP_MINIMUM = TOPUP_MINIMUM_IDR
 const WELCOME_BONUS_AMOUNT = 5000
 
 export async function GET() {
@@ -53,6 +54,7 @@ export async function GET() {
         paymentCode: order.paymentCode,
         customerName: order.customerName,
         customerEmail: order.customerEmail,
+        payload: order.payload,
         createdAt: order.createdAt,
         paidAt: order.paidAt,
         expiresAt: order.expiresAt,

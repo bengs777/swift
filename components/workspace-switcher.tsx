@@ -61,29 +61,47 @@ export function WorkspaceSwitcher({ currentWorkspaceId }: { currentWorkspaceId?:
   }
 
   if (loading) {
-    return <Button variant="outline" disabled>Loading...</Button>
+    return (
+      <Button
+        variant="outline"
+        className="w-full justify-between rounded-2xl border-sidebar-border bg-background/70 shadow-sm"
+        disabled
+      >
+        Loading workspaces...
+      </Button>
+    )
   }
 
   if (!currentWorkspace) {
-    return <Button variant="outline">Select Workspace</Button>
+    return (
+      <Button
+        variant="outline"
+        className="w-full justify-between rounded-2xl border-sidebar-border bg-background/70 shadow-sm"
+      >
+        Select Workspace
+      </Button>
+    )
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="w-full justify-between">
+        <Button
+          variant="outline"
+          className="w-full justify-between rounded-2xl border-sidebar-border bg-background/70 px-4 py-6 text-left shadow-sm transition-colors hover:bg-background"
+        >
           <span className="truncate">{currentWorkspace.workspace.name}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56" align="start">
+      <DropdownMenuContent className="w-56 rounded-2xl" align="start">
         <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {workspaces.map((ws) => (
           <DropdownMenuItem
             key={ws.workspace.id}
             onClick={() => switchWorkspace(ws)}
-            className="flex items-center justify-between"
+            className="flex items-center justify-between rounded-xl"
           >
             <span>{ws.workspace.name}</span>
             {ws.workspace.id === currentWorkspace.workspace.id && (
@@ -92,8 +110,8 @@ export function WorkspaceSwitcher({ currentWorkspaceId }: { currentWorkspaceId?:
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link href="/dashboard/workspace-settings">
+        <DropdownMenuItem asChild className="rounded-xl">
+          <Link href="/dashboard/workspace-settings" className="flex items-center">
             <Plus className="mr-2 h-4 w-4" />
             New Workspace
           </Link>

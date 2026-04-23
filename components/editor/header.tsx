@@ -14,6 +14,7 @@ import {
   ArrowLeft, 
   Download, 
   ExternalLink, 
+  Lock,
   MoreHorizontal, 
   Rocket, 
   Share2,
@@ -21,6 +22,7 @@ import {
 } from "lucide-react"
 import DomainDialog from "./domain-dialog"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
+import { getBillingPlan } from "@/lib/billing/plans"
 
 interface EditorHeaderProps {
   projectId: string
@@ -32,6 +34,8 @@ interface EditorHeaderProps {
   deploymentUrl?: string | null
   customDomain?: string | null
   onDomainSaved?: (domain: string | null) => void
+  subscriptionPlan?: string | null
+  subscriptionStatus?: string | null
 }
 
 export function EditorHeader({
@@ -44,7 +48,12 @@ export function EditorHeader({
   deploymentUrl = null,
   customDomain = null,
   onDomainSaved,
+  subscriptionPlan = "free",
+  subscriptionStatus = "active",
 }: EditorHeaderProps) {
+  const billingPlan = getBillingPlan(subscriptionPlan)
+  const canUsePremiumFeatures = billingPlan.id !== "free" && subscriptionStatus === "active"
+
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4">
       <div className="flex items-center gap-4">
@@ -60,6 +69,9 @@ export function EditorHeader({
               v{currentVersion}
             </Badge>
           )}
+          <Badge variant={canUsePremiumFeatures ? "secondary" : "outline"} className="text-xs">
+            {billingPlan.name}
+          </Badge>
         </div>
       </div>
 
@@ -70,34 +82,61 @@ export function EditorHeader({
           <Share2 className="h-4 w-4" />
           Share
         </Button>
-        
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2" disabled={isExporting}>
-              <Download className="h-4 w-4" />
-              {isExporting ? "Exporting..." : "Export"}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={onExportZip} disabled={isExporting}>
-              <Download className="mr-2 h-4 w-4" />
-              Download ZIP
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <Github className="mr-2 h-4 w-4" />
-              Push to GitHub
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
 
-        <div className="flex items-center gap-2">
-          <Button size="sm" className="gap-2" onClick={onDeploy} disabled={isDeploying}>
-            <Rocket className="h-4 w-4" />
-            {isDeploying ? "Deploying..." : "Deploy"}
+        {canUsePremiumFeatures ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2" disabled={isExporting}>
+                <Download className="h-4 w-4" />
+                {isExporting ? "Exporting..." : "Export"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={onExportZip} disabled={isExporting}>
+                <Download className="mr-2 h-4 w-4" />
+                Download ZIP
+              </DropdownMenuItem>
+              <DropdownMenuItem>
+                <Github className="mr-2 h-4 w-4" />
+                Push to GitHub
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button asChild variant="outline" size="sm" className="gap-2">
+            <Link href="/dashboard/settings?tab=billing">
+              <Lock className="h-4 w-4" />
+              Export locked
+            </Link>
           </Button>
+        )}
 
-          <DomainDialog projectId={projectId} currentDomain={customDomain} onDomainSaved={onDomainSaved} />
-        </div>
+        {canUsePremiumFeatures ? (
+          <div className="flex items-center gap-2">
+            <Button size="sm" className="gap-2" onClick={onDeploy} disabled={isDeploying}>
+              <Rocket className="h-4 w-4" />
+              {isDeploying ? "Deploying..." : "Deploy"}
+            </Button>
+
+            <DomainDialog projectId={projectId} currentDomain={customDomain} onDomainSaved={onDomainSaved} />
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm" className="gap-2">
+              <Link href="/dashboard/settings?tab=billing">
+                <Lock className="h-4 w-4" />
+                Deploy locked
+              </Link>
+            </Button>
+
+            <Button asChild variant="outline" size="sm" className="gap-2">
+              <Link href="/dashboard/settings?tab=billing">
+                <Lock className="h-4 w-4" />
+                Domain locked
+              </Link>
+            </Button>
+          </div>
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

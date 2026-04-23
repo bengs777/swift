@@ -1,9 +1,16 @@
 import { useState } from "react"
 import { useToast } from "@/hooks/use-toast"
+import { MIN_CRYPTO_PAYMENT_USD, MIN_CRYPTO_PAYMENT_USD_CENTS, TOPUP_MINIMUM_IDR } from "@/lib/billing/constants"
+import { type BillingPlanId, type BillingPurchaseType } from "@/lib/billing/plans"
 
 interface CryptoPaymentRequest {
   amountInUsd: number
   chainId: number
+  purchaseType?: BillingPurchaseType
+  planId?: BillingPlanId
+  workspaceId?: string
+  source?: string
+  note?: string
 }
 
 interface CryptoPaymentResponse {
@@ -23,12 +30,13 @@ export function useCryptoPayment() {
 
   const createPaymentRequest = async (
     amountInUsd: number,
-    chainId: number
+    chainId: number,
+    extraData?: Omit<CryptoPaymentRequest, "amountInUsd" | "chainId">
   ): Promise<CryptoPaymentResponse | null> => {
-    if (!amountInUsd || amountInUsd < 12) {
+    if (!amountInUsd || amountInUsd < MIN_CRYPTO_PAYMENT_USD_CENTS) {
       toast({
         title: "Invalid Amount",
-        description: "Minimum payment is 0.12 USDT (~Rp 1.900)",
+        description: `Minimum payment is Rp ${TOPUP_MINIMUM_IDR.toLocaleString("id-ID")} (~${MIN_CRYPTO_PAYMENT_USD.toFixed(2)} USDT)`,
         variant: "destructive",
       })
       return null
@@ -42,6 +50,7 @@ export function useCryptoPayment() {
         body: JSON.stringify({
           amountInUsd,
           chainId,
+          ...extraData,
         }),
       })
 
@@ -67,9 +76,10 @@ export function useCryptoPayment() {
 
   const openCheckout = async (
     amountInUsd: number,
-    chainId: number
+    chainId: number,
+    extraData?: Omit<CryptoPaymentRequest, "amountInUsd" | "chainId">
   ): Promise<void> => {
-    const response = await createPaymentRequest(amountInUsd, chainId)
+    const response = await createPaymentRequest(amountInUsd, chainId, extraData)
     if (response) {
       // Open checkout page in new window or redirect
       window.open(response.checkoutUrl, "_blank")
