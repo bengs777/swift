@@ -3,13 +3,13 @@
 import { useState, useCallback, useEffect } from "react"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { SandboxPreview } from "./sandbox-preview"
-import { 
-  Smartphone, 
-  Tablet, 
-  Monitor, 
-  RefreshCw, 
+import { FileExplorer } from "./file-explorer"
+import {
+  Smartphone,
+  Tablet,
+  Monitor,
+  RefreshCw,
   ExternalLink,
   Copy,
   Check,
@@ -19,7 +19,7 @@ import {
   Trash2,
   ChevronRight,
   ChevronDown,
-  Folder
+  Folder,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { GeneratedFile } from "@/lib/types"
@@ -31,13 +31,15 @@ interface PreviewPanelProps {
   previewFiles?: GeneratedFile[] | null
   currentVersion: number
   activeFileIndex: number
+  onSelectFile?: (index: number) => void
+  onViewportChange?: (viewport: ViewportSize) => void
   onUpdateFile?: (index: number, content: string) => void
   onReplaceFiles?: (files: GeneratedFile[]) => void
   onSaveFiles?: () => void
   isSaving?: boolean
   isDirty?: boolean
-  activeTab?: "preview" | "code"
-  onTabChange?: (tab: "preview" | "code") => void
+  activeTab?: "preview" | "code" | "explorer"
+  onTabChange?: (tab: "preview" | "code" | "explorer") => void
   onPreviewErrorChange?: (error: string | null) => void
 }
 
@@ -46,6 +48,8 @@ export function PreviewPanel({
   previewFiles = null,
   currentVersion,
   activeFileIndex,
+  onSelectFile,
+  onViewportChange,
   onUpdateFile,
   onReplaceFiles,
   onSaveFiles,
@@ -55,7 +59,7 @@ export function PreviewPanel({
   onTabChange,
   onPreviewErrorChange,
 }: PreviewPanelProps) {
-  const [internalActiveTab, setInternalActiveTab] = useState<"preview" | "code">("preview")
+  const [internalActiveTab, setInternalActiveTab] = useState<"preview" | "code" | "explorer">("preview")
   const [viewport, setViewport] = useState<ViewportSize>("desktop")
   const [activeFile, setActiveFile] = useState(0)
   const [copied, setCopied] = useState(false)
@@ -94,6 +98,10 @@ export function PreviewPanel({
   const handlePreviewError = useCallback((error: string) => {
     setPreviewError(error)
   }, [])
+
+  useEffect(() => {
+    onViewportChange?.(viewport)
+  }, [onViewportChange, viewport])
 
   const handleCodeChange = (content: string) => {
     onUpdateFile?.(activeFileIndex, content)
@@ -165,7 +173,7 @@ export function PreviewPanel({
 
   const fileTree = buildFileTree(files)
 
-  const handleTabChange = (tab: "preview" | "code") => {
+  const handleTabChange = (tab: "preview" | "code" | "explorer") => {
     if (!activeTabProp) {
       setInternalActiveTab(tab)
     }
@@ -177,12 +185,16 @@ export function PreviewPanel({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border bg-background px-4 py-2">
         <div className="flex items-center gap-4">
-          <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as "preview" | "code")}>
+          <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as "preview" | "code" | "explorer") }>
             <TabsList>
               <TabsTrigger value="preview">Preview</TabsTrigger>
               <TabsTrigger value="code" className="gap-2">
                 <FileCode className="h-3.5 w-3.5" />
                 Code
+              </TabsTrigger>
+              <TabsTrigger value="explorer" className="gap-2">
+                <Folder className="h-3.5 w-3.5" />
+                Explorer
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -299,7 +311,7 @@ export function PreviewPanel({
             )}
           </div>
         </div>
-      ) : (
+      ) : activeTab === "code" ? (
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {files.length > 0 ? (
             <div className="flex-1 overflow-auto bg-background">
@@ -312,6 +324,15 @@ export function PreviewPanel({
           ) : (
             <EmptyCode />
           )}
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
+          <FileExplorer
+            files={files}
+            activeFileIndex={activeFileIndex}
+            onSelectFile={onSelectFile || (() => {})}
+            onReplaceFiles={onReplaceFiles}
+          />
         </div>
       )}
     </div>
@@ -537,8 +558,8 @@ function getDefaultContentForPath(path: string) {
   }
 
   if (path.endsWith(".prisma")) {
-    return `generator client {\n  provider = "prisma-client-js"\n}\n\n` +
-      `datasource db {\n  provider = "sqlite"\n  url      = env("DATABASE_URL")\n}\n`
+    return `generator client {\n  provider = "prisma-client-js"\n  previewFeatures = ["driverAdapters"]\n}\n\n` +
+      `datasource db {\n  provider = "sqlite"\n  url      = env("TURSO_DATABASE_URL")\n}\n`
   }
 
   if (path.endsWith(".env")) {
@@ -574,6 +595,20 @@ function toCamelCase(value: string) {
   return pascal ? pascal.charAt(0).toLowerCase() + pascal.slice(1) : ""
 }
 
+function repairCommonJsxAttributeStrings(content: string) {
+  let output = String(content)
+
+  output = output.replace(
+    /([A-Za-z_$][\w:-]*)=\{\s*'([\s\S]*?\$\{[\s\S]*?\}[\s\S]*?)'\s*\}/g,
+    (_full, attributeName: string, attributeValue: string) => {
+      const normalizedValue = attributeValue.replace(/\\\$\{/g, "${")
+      return `${attributeName}={\`${normalizedValue}\`}`
+    }
+  )
+
+  return output
+}
+
 function buildBrowserPreviewFiles(files: GeneratedFile[]) {
   const previewLookup = new Map(
     files.map((file) => [normalizePreviewPath(file.path), file] as const)
@@ -581,7 +616,7 @@ function buildBrowserPreviewFiles(files: GeneratedFile[]) {
 
   return files.map((file) => {
     const previewVariant = findPreviewVariant(file.path, previewLookup)
-    const sourceContent = String(previewVariant?.content ?? file.content ?? "")
+    const sourceContent = repairCommonJsxAttributeStrings(String(previewVariant?.content ?? file.content ?? ""))
 
     if (isPreviewJsonFile(file.path)) {
       try {
@@ -685,7 +720,7 @@ function buildPreviewFallbackModule(filePath: string, detail: string) {
 }
 
 function makeBrowserSafePreviewContent(content: string) {
-  let s = String(content)
+  let s = repairCommonJsxAttributeStrings(String(content))
 
   const previewMockObject = `({
     id: "preview",

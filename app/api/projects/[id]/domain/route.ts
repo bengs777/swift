@@ -143,7 +143,10 @@ export async function POST(
     const resolver = dns.promises
 
     let verified = false
-    const details: any = { a: null, cname: null }
+    const details: {
+      a: string[] | { error: string } | null
+      cname: string[] | { error: string } | null
+    } = { a: null, cname: null }
 
     if (isApex) {
       try {

@@ -1,3 +1,4 @@
+import { z } from "zod"
 import type { GeneratedFile } from "@/lib/types"
 
 type ProviderOutputParseResult = {
@@ -18,6 +19,26 @@ const ALLOWED_LANGUAGES: GeneratedFile["language"][] = [
 
 const ALLOWED_LANGUAGE_SET = new Set(ALLOWED_LANGUAGES)
 const FILE_PATH_PATTERN = /[A-Za-z0-9._/-]+\.(tsx|ts|css|json|html|prisma|md|env)/i
+
+const PATH_CONTENT_FILE_SCHEMA = z.object({
+  path: z.string().trim().min(1),
+  content: z.string(),
+  language: z.string().trim().optional().nullable(),
+})
+
+const FILENAME_CODE_FILE_SCHEMA = z.object({
+  filename: z.string().trim().min(1),
+  code: z.string(),
+  language: z.string().trim().optional().nullable(),
+})
+
+const PROVIDER_OUTPUT_SCHEMA = z.union([
+  z.array(z.union([PATH_CONTENT_FILE_SCHEMA, FILENAME_CODE_FILE_SCHEMA])),
+  z.object({
+    message: z.string().optional(),
+    files: z.array(z.union([PATH_CONTENT_FILE_SCHEMA, FILENAME_CODE_FILE_SCHEMA])),
+  }),
+])
 
 const LANGUAGE_ALIASES: Record<string, GeneratedFile["language"]> = {
   tsx: "tsx",
@@ -112,17 +133,19 @@ function parseJsonCandidate(candidate: string): GeneratedFile[] {
     return []
   }
 
-  if (Array.isArray(parsed)) {
-    return parsed.flatMap((entry) => toGeneratedFile(entry)).filter(Boolean) as GeneratedFile[]
+  const validated = PROVIDER_OUTPUT_SCHEMA.safeParse(parsed)
+  if (!validated.success) {
+    return []
   }
 
-  if (typeof parsed === "object" && parsed !== null) {
-    const objectCandidate = parsed as Record<string, unknown>
-    if (Array.isArray(objectCandidate.files)) {
-      return objectCandidate.files
-        .flatMap((entry) => toGeneratedFile(entry))
-        .filter(Boolean) as GeneratedFile[]
-    }
+  if (Array.isArray(validated.data)) {
+    return validated.data.flatMap((entry) => toGeneratedFile(entry)).filter(Boolean) as GeneratedFile[]
+  }
+
+  if (typeof validated.data === "object" && validated.data !== null) {
+    return validated.data.files
+      .flatMap((entry) => toGeneratedFile(entry))
+      .filter(Boolean) as GeneratedFile[]
   }
 
   return []
@@ -453,11 +476,10 @@ function toGeneratedFile(value: unknown): GeneratedFile | null {
   }
 
   const record = value as Record<string, unknown>
-  const rawPath = typeof record.path === "string" ? record.path : ""
-  const hasContent = typeof record.content === "string"
-  const rawContent = hasContent ? (record.content as string) : ""
+  const rawPath = typeof record.path === "string" ? record.path : typeof record.filename === "string" ? record.filename : ""
+  const rawContent = typeof record.content === "string" ? record.content : typeof record.code === "string" ? record.code : ""
 
-  if (!rawPath.trim() || !hasContent) {
+  if (!rawPath.trim() || !rawContent) {
     return null
   }
 

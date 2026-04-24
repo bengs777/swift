@@ -28,6 +28,7 @@ interface FileExplorerProps {
   activeFileIndex: number
   onSelectFile: (index: number) => void
   onReplaceFiles?: (files: GeneratedFile[]) => void
+  compact?: boolean
 }
 
 const DEFAULT_EXPANDED_FOLDERS = ["app", "components", "hooks", "lib", "prisma", "public", "styles"]
@@ -37,6 +38,7 @@ export function FileExplorer({
   activeFileIndex,
   onSelectFile,
   onReplaceFiles,
+  compact = false,
 }: FileExplorerProps) {
   const [expandedFolders, setExpandedFolders] = useState<string[]>(DEFAULT_EXPANDED_FOLDERS)
 
@@ -119,54 +121,57 @@ export function FileExplorer({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-r border-border bg-background">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div>
-          <p className="text-sm font-medium text-foreground">Explorer</p>
-          <p className="text-xs text-muted-foreground">Project files</p>
+    <div className={cn("flex h-full w-full min-h-0 flex-col border-r border-border bg-background", compact && "overflow-hidden") }>
+      <div className={cn("flex items-center justify-between border-b border-border px-3 py-2", compact && "px-2 py-2") }>
+        <div className="min-w-0">
+          <p className={cn("truncate text-sm font-medium text-foreground", compact && "text-xs")}>Explorer</p>
+          {!compact && <p className="text-xs text-muted-foreground">Project files</p>}
         </div>
         <Badge variant="secondary" className="text-xs">
           {files.length}
         </Badge>
       </div>
 
-      <div className="flex items-center gap-1 border-b border-border px-2 py-2">
+      <div className={cn("border-b border-border px-2 py-2", compact ? "grid grid-cols-3 gap-1" : "flex items-center gap-1")}>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-2 px-2"
+          className={cn("h-8 gap-2 px-2", compact && "justify-center px-0")}
           onClick={handleCreateFile}
           disabled={!canMutateFiles}
+          title="New file"
         >
           <FilePlus2 className="h-4 w-4" />
-          New
+          <span className={cn(compact && "sr-only")}>New</span>
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-2 px-2"
+          className={cn("h-8 gap-2 px-2", compact && "justify-center px-0")}
           onClick={handleRenameActiveFile}
           disabled={!canMutateFiles || !activeFile}
+          title="Rename active file"
         >
           <FilePenLine className="h-4 w-4" />
-          Rename
+          <span className={cn(compact && "sr-only")}>Rename</span>
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-2 px-2"
+          className={cn("h-8 gap-2 px-2", compact && "justify-center px-0")}
           onClick={handleDeleteActiveFile}
           disabled={!canMutateFiles || !activeFile}
+          title="Delete active file"
         >
           <Trash2 className="h-4 w-4" />
-          Delete
+          <span className={cn(compact && "sr-only")}>Delete</span>
         </Button>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="p-2">
+        <div className={cn("p-2", compact && "p-1") }>
           {files.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+            <div className={cn("rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground", compact && "p-3 text-xs") }>
               No files yet. Start by generating a project or create a file manually.
             </div>
           ) : (
@@ -217,7 +222,7 @@ function FileTreeNode({
           type="button"
           onClick={() => onToggleFolder(node.path)}
           className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          style={{ paddingLeft: `${8 + depth * 14}px` }}
+          style={{ paddingLeft: `${8 + depth * 12}px` }}
         >
           {isExpanded ? (
             <ChevronDown className="h-3.5 w-3.5 shrink-0" />
@@ -254,7 +259,7 @@ function FileTreeNode({
           ? "bg-secondary text-secondary-foreground"
           : "text-muted-foreground hover:bg-muted hover:text-foreground"
       )}
-      style={{ paddingLeft: `${24 + depth * 14}px` }}
+      style={{ paddingLeft: `${24 + depth * 12}px` }}
     >
       <FileCode className="h-4 w-4 shrink-0" />
       <span className="truncate">{node.name}</span>

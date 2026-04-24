@@ -1,5 +1,6 @@
 import { AI_CONFIG } from './config'
 import { env } from '@/lib/env'
+import { DEFAULT_MODEL_OPTIONS, isFreeModel } from '@/lib/ai/models'
 
 export interface AIRequest {
   role: 'planner' | 'builder' | 'refiner'
@@ -21,12 +22,12 @@ export interface AIResponse {
   dataStructure?: string
 }
 
-class BluesMindsApiError extends Error {
+class AIProviderError extends Error {
   status: number
 
   constructor(status: number, message: string) {
     super(message)
-    this.name = "BluesMindsApiError"
+    this.name = "AIProviderError"
     this.status = status
   }
 }
@@ -38,13 +39,13 @@ export class AIClient {
   private fallbackModels: string[]
 
   constructor() {
-    this.apiKey = env.agentRouterApiKey
+    this.apiKey = env.openAiApiKey
     this.baseUrl = AI_CONFIG.baseUrl
-    this.model = AI_CONFIG.model
+    this.model = isFreeModel(AI_CONFIG.model) ? AI_CONFIG.model : DEFAULT_MODEL_OPTIONS[0].key
     this.fallbackModels = this.buildModelCandidates()
     
     if (!this.apiKey) {
-      console.warn('[v0] AGENT_ROUTER_TOKEN not set. AI features may not work properly.')
+      console.warn('[v0] OPENAI_API_KEY not set. OpenRouter-compatible AI features may not work properly.')
     }
   }
 
@@ -76,14 +77,14 @@ export class AIClient {
             throw lastError
           }
 
-          console.warn(`[v0] BluesMinds model "${model}" failed, trying next fallback model.`)
+          console.warn(`[v0] OpenRouter-compatible model "${model}" failed, trying next fallback model.`)
         }
       }
 
-      throw lastError || new Error("BluesMinds request failed without a specific error.")
+      throw lastError || new Error("AI request failed without a specific error.")
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('BluesMinds API request timed out after 65 seconds.')
+        throw new Error('AI API request timed out after 65 seconds.')
       }
 
       console.error('[v0] AI Client error:', error)
@@ -93,12 +94,15 @@ export class AIClient {
 
   private buildModelCandidates(): string[] {
     const fallbackPool =
-      env.agentRouterFallbackModels.length > 0
-        ? env.agentRouterFallbackModels
-        : env.agentRouterModels
+      env.openAiApiUrl.includes("openrouter.ai")
+        ? DEFAULT_MODEL_OPTIONS.map((model) => model.key)
+        : env.openAiModels.length > 0
+          ? [...env.openAiModels, env.openAiFallbackModel]
+          : [env.openAiFallbackModel]
 
     return [this.model, ...fallbackPool]
       .map((model) => model.trim())
+      .filter(isFreeModel)
       .filter(Boolean)
       .filter((model, index, list) => list.indexOf(model) === index)
   }
@@ -129,9 +133,9 @@ export class AIClient {
 
       if (!response.ok) {
         const errorMessage = await this.extractErrorMessage(response)
-        throw new BluesMindsApiError(
+        throw new AIProviderError(
           response.status,
-          `BluesMinds API error (${response.status}) for model "${model}": ${errorMessage}`
+          `OpenRouter-compatible API error (${response.status}) for model "${model}": ${errorMessage}`
         )
       }
 
@@ -168,7 +172,7 @@ export class AIClient {
   }
 
   private shouldFallbackToAnotherModel(error: Error): boolean {
-    if (!(error instanceof BluesMindsApiError)) {
+    if (!(error instanceof AIProviderError)) {
       return false
     }
 

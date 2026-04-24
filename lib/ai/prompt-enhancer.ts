@@ -1,3 +1,5 @@
+import type { ProjectMemoryData } from "@/lib/types"
+
 type PromptDraft = {
   projectName: string
   productType: string
@@ -8,13 +10,29 @@ type PromptDraft = {
   dataModels: string[]
   uiStyle: string[]
   assumptions: string[]
+  microTasks: string[]
+  deliveryRules: string[]
 }
+
+type PromptWorkPlan = {
+  mode: "build" | "patch"
+  objective: string
+  focusSlice: string
+  filePriority: string[]
+  previewChecks: string[]
+  repairLoop: string[]
+  constraints: string[]
+}
+
+type PromptMemorySeed = ProjectMemoryData
 
 export type PromptEnhancementResult = {
   prompt: string
   summary: string
   sourcesUsed: string[]
   usedEnhancement: boolean
+  plan: PromptWorkPlan
+  projectMemory: PromptMemorySeed
 }
 
 const MAX_ITEMS_PER_SECTION = 5
@@ -28,11 +46,15 @@ export async function enhancePromptWithAgentRouter({
 }): Promise<PromptEnhancementResult> {
   void modelName
   const draft = buildLocalPromptDraft(prompt)
+  const plan = buildPromptWorkPlan(prompt, draft)
+  const projectMemory = buildProjectMemorySeed(draft, plan)
   return {
-    prompt: serializeDraft(prompt, draft),
-    summary: draft.coreGoal || draft.productType || inferFallbackSummary(prompt),
+    prompt: serializeDraft(prompt, draft, plan, projectMemory),
+    summary: draft.microTasks[0] || draft.coreGoal || draft.productType || inferFallbackSummary(prompt),
     sourcesUsed: ["local-heuristic"],
     usedEnhancement: true,
+    plan,
+    projectMemory,
   }
 }
 
@@ -54,6 +76,9 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
   const looksLikeAuth = normalized.includes("login") || normalized.includes("sign in") || normalized.includes("auth")
   const looksLikeLanding = normalized.includes("landing") || normalized.includes("hero") || normalized.includes("marketing")
   const looksLikeStore = normalized.includes("shop") || normalized.includes("ecommerce") || normalized.includes("store")
+  const looksLikePortfolio = normalized.includes("portfolio") || normalized.includes("personal brand") || normalized.includes("resume")
+  const looksLikeBooking = normalized.includes("booking") || normalized.includes("reservation") || normalized.includes("appointment")
+  const looksLikeCrm = normalized.includes("crm") || normalized.includes("pipeline") || normalized.includes("lead management")
   const looksLikeBlog = normalized.includes("blog") || normalized.includes("article") || normalized.includes("content")
 
   const projectName = inferProjectName(compactPrompt)
@@ -66,8 +91,14 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
         ? "authentication-focused web app"
         : looksLikeLanding
           ? "marketing landing page"
-          : looksLikeStore
+        : looksLikeStore
             ? "e-commerce storefront"
+          : looksLikePortfolio
+            ? "personal brand portfolio website"
+            : looksLikeBooking
+              ? "booking and reservation web app"
+              : looksLikeCrm
+                ? "internal CRM business tool"
             : looksLikeBlog
               ? "content website"
               : "full-stack web app"
@@ -81,6 +112,9 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     looksLikeAuth ? "Login page" : "",
     looksLikeDashboard ? "Dashboard page" : "",
     looksLikeStore ? "Product listing page" : "",
+    looksLikePortfolio ? "Portfolio page" : "",
+    looksLikeBooking ? "Booking flow page" : "",
+    looksLikeCrm ? "CRM pipeline page" : "",
     looksLikeBlog ? "Content detail page" : "",
   ])
 
@@ -91,7 +125,11 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     looksLikeWorkspace ? "Share link and version history hooks" : "",
     looksLikeDashboard ? "Data cards, tables, and activity sections" : "",
     looksLikeStore ? "Product cards and call-to-action sections" : "",
+    looksLikePortfolio ? "Project gallery, service highlights, and contact conversion flow" : "",
+    looksLikeBooking ? "Availability calendar, reservation form, and booking confirmation" : "",
+    looksLikeCrm ? "Lead list, deal pipeline, and task tracking workflow" : "",
     looksLikeBlog ? "Content list and readable article layout" : "",
+    "Responsive navigation, clear CTA, loading states, and empty states",
     "Reusable components and clean state handling",
   ])
 
@@ -103,6 +141,9 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     looksLikeAuth ? "/api/auth/login" : "",
     looksLikeDashboard ? "/api/dashboard/summary" : "",
     looksLikeStore ? "/api/products" : "",
+    looksLikePortfolio ? "/api/contact" : "",
+    looksLikeBooking ? "/api/bookings" : "",
+    looksLikeCrm ? "/api/leads" : "",
     looksLikeBlog ? "/api/posts" : "",
   ])
 
@@ -113,20 +154,60 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     looksLikeWorkspace ? "GenerationHistory" : "",
     looksLikeDashboard ? "DashboardMetric" : "",
     looksLikeStore ? "Product" : "",
+    looksLikePortfolio ? "ProjectShowcase" : "",
+    looksLikeBooking ? "BookingSlot" : "",
+    looksLikeCrm ? "Lead" : "",
     looksLikeBlog ? "Post" : "",
   ])
 
   const uiStyle = dedupeItems([
     looksLikeWorkspace ? "IDE-like split panes and dense hierarchy" : "Modern and production-ready",
     looksLikeWorkspace ? "Fast feedback loop with visible status and logs" : "Responsive spacing and clear hierarchy",
-    looksLikeWorkspace ? "Opinionated, tasteful default layout" : "Dark dashboard aesthetic",
+    looksLikeWorkspace ? "Opinionated, tasteful default layout" : "Conversion-focused hierarchy with strong CTA placement",
   ])
 
   const assumptions = dedupeItems([
     compactPrompt.length < 12 ? "User request is brief, so sensible starter defaults are applied." : "",
+    "Any missing section is treated as optional and filled with the smallest reasonable default.",
     "Use Next.js app router with lightweight server endpoints.",
     looksLikeWorkspace ? "Prefer patch-first iteration over full regeneration when a project already exists." : "Keep scope practical for a starter project.",
     looksLikeWorkspace ? "Keep preview as a feedback loop and expose runtime errors clearly." : "",
+  ])
+
+  const microTasks = dedupeItems([
+    looksLikeWorkspace
+      ? "Build the smallest stable workspace shell first: layout, file explorer, editor, and preview container."
+      : looksLikeDashboard
+        ? "Build the main dashboard shell first: navigation, header, and one high-value KPI section."
+        : looksLikeAuth
+          ? "Build the primary auth flow first: sign-in, validation, and session-ready structure."
+        : looksLikeLanding
+            ? "Build the hero and primary CTA first, then add supporting sections only if needed."
+            : looksLikeStore
+              ? "Build the product listing and primary purchase path first."
+              : looksLikePortfolio
+                ? "Build a hero + proof + project showcase slice with one strong contact CTA first."
+                : looksLikeBooking
+                  ? "Build the reservation path first: availability, booking form, and confirmation feedback."
+                  : looksLikeCrm
+                    ? "Build the lead pipeline core first: list, status transitions, and owner visibility."
+                : looksLikeBlog
+                  ? "Build the content list and article layout first."
+                  : "Build the next smallest coherent slice first instead of the entire app at once.",
+    looksLikeWorkspace
+      ? "Add preview, logs, and version-history wiring only after the shell is stable."
+      : looksLikeDashboard
+        ? "Add supporting tables, charts, or detail views in the next pass only if the first slice is stable."
+        : "Keep the response scoped to one meaningful increment and avoid unnecessary rewrites.",
+    "If the request is broad, choose the highest-impact slice and defer the rest to the next prompt.",
+  ])
+
+  const deliveryRules = dedupeItems([
+    "Patch existing files first when editing an existing project.",
+    "Return only the files you changed or created.",
+    "Keep the output browser-safe and previewable when a frontend file is involved.",
+    "Prefer preview/ sibling files or .preview variants for browser-rendered pages when needed.",
+    "Avoid adding new libraries or architectural layers unless the request explicitly requires them.",
   ])
 
   return {
@@ -139,22 +220,194 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     dataModels,
     uiStyle,
     assumptions,
+    microTasks,
+    deliveryRules,
   }
 }
 
-function serializeDraft(originalPrompt: string, draft: PromptDraft) {
+function buildPromptWorkPlan(prompt: string, draft: PromptDraft): PromptWorkPlan {
+  const normalized = inlineText(prompt).toLowerCase()
+  const isPatchRequest =
+    /(patch|continue existing project|existing project|current project file tree|project ini|this project|perbaiki|fix|edit this|refine|improve|enhance|debug|investigasi)/.test(normalized) ||
+    draft.microTasks.some((item) => /patch|refine|improve|debug|inspect/i.test(item))
+
+  return {
+    mode: isPatchRequest ? "patch" : "build",
+    objective: draft.coreGoal,
+    focusSlice: draft.microTasks[0] || draft.coreGoal,
+    filePriority: buildFilePriority(draft),
+    previewChecks: buildPreviewChecks(draft, isPatchRequest),
+    repairLoop: [
+      "If preview fails, inspect the active file and the latest preview error first.",
+      "Patch the smallest failing file before widening the change set.",
+      "Re-run preview-safe syntax validation after the patch.",
+      "Keep the fix localized and do not regenerate the whole project unless the slice is unrecoverable.",
+    ],
+    constraints: dedupeItems([
+      ...draft.assumptions.slice(0, 3),
+      ...draft.deliveryRules,
+      "Do not add new libraries or architectural layers unless the request explicitly requires them.",
+    ]),
+  }
+}
+
+function buildFilePriority(draft: PromptDraft) {
+  const isWorkspace = draft.pages.some((page) => ["Explorer", "Editor", "Preview", "Terminal", "History"].includes(page)) ||
+    draft.features.some((feature) => /file explorer|preview|terminal|version history/i.test(feature))
+  const isDashboard = draft.pages.some((page) => page === "Dashboard page")
+  const isCommerce = draft.features.some((feature) => /purchase|product cards|checkout|store/i.test(feature))
+  const isPortfolio = draft.features.some((feature) => /project gallery|contact conversion|personal brand/i.test(feature))
+  const isBooking = draft.features.some((feature) => /reservation|booking|availability/i.test(feature))
+  const isCrm = draft.features.some((feature) => /lead|pipeline|crm/i.test(feature))
+  const isAuth = draft.features.some((feature) => /auth-ready|validation/i.test(feature))
+
+  if (isWorkspace) {
+    return [
+      "app/page.tsx",
+      "app/layout.tsx",
+      "components/editor/chat-panel.tsx",
+      "components/editor/preview-panel.tsx",
+      "components/editor/error-log-panel.tsx",
+      "components/dashboard/sidebar.tsx",
+      "app/api/generate/route.ts",
+      "app/api/health/route.ts",
+      "lib/services/project.service.ts",
+      "prisma/schema.prisma",
+    ]
+  }
+
+  if (isDashboard) {
+    return [
+      "app/page.tsx",
+      "components/dashboard/sidebar.tsx",
+      "app/api/dashboard/summary/route.ts",
+      "lib/services/dashboard.service.ts",
+      "app/layout.tsx",
+      "prisma/schema.prisma",
+    ]
+  }
+
+  if (isCommerce) {
+    return [
+      "app/page.tsx",
+      "app/api/products/route.ts",
+      "app/api/orders/route.ts",
+      "lib/services/catalog.service.ts",
+      "prisma/schema.prisma",
+      "components/ui/button.tsx",
+      "components/ui/card.tsx",
+    ]
+  }
+
+  if (isPortfolio) {
+    return [
+      "app/page.tsx",
+      "app/api/contact/route.ts",
+      "components/ui/button.tsx",
+      "components/ui/card.tsx",
+      "app/layout.tsx",
+      "prisma/schema.prisma",
+    ]
+  }
+
+  if (isBooking) {
+    return [
+      "app/page.tsx",
+      "app/api/bookings/route.ts",
+      "lib/services/booking.service.ts",
+      "components/ui/form.tsx",
+      "app/layout.tsx",
+      "prisma/schema.prisma",
+    ]
+  }
+
+  if (isCrm) {
+    return [
+      "app/page.tsx",
+      "app/api/leads/route.ts",
+      "lib/services/crm.service.ts",
+      "components/ui/table.tsx",
+      "app/layout.tsx",
+      "prisma/schema.prisma",
+    ]
+  }
+
+  if (isAuth) {
+    return [
+      "app/page.tsx",
+      "app/api/auth/[...nextauth]/route.ts",
+      "lib/auth.ts",
+      "app/layout.tsx",
+      "prisma/schema.prisma",
+    ]
+  }
+
+  return [
+    "app/page.tsx",
+    "app/layout.tsx",
+    "app/api/health/route.ts",
+    "lib/utils.ts",
+    "prisma/schema.prisma",
+  ]
+}
+
+function buildPreviewChecks(draft: PromptDraft, isPatchRequest: boolean) {
+  const checks = [
+    "Open app/page.tsx in browser preview and confirm it renders without syntax errors.",
+    "Keep browser-facing files client-safe and avoid server-only imports in preview files.",
+    "Validate the smallest changed file first before expanding to supporting modules.",
+  ]
+
+  if (isPatchRequest) {
+    checks.push("If preview errors appear, patch the broken existing file instead of regenerating the whole tree.")
+  }
+
+  if (draft.pages.includes("Explorer") || draft.features.some((feature) => /preview/i.test(feature))) {
+    checks.push("Keep preview/tab state and editor state consistent while patching the workspace shell.")
+  }
+
+  return dedupeItems(checks)
+}
+
+function buildProjectMemorySeed(draft: PromptDraft, plan: PromptWorkPlan): PromptMemorySeed {
+  const notes = dedupeItems([
+    `Plan mode: ${plan.mode}`,
+    plan.focusSlice,
+    ...draft.microTasks.slice(0, 3),
+    ...draft.assumptions.slice(0, 3),
+  ])
+
+  return {
+    framework: "next",
+    uiStyle: draft.uiStyle[0] || null,
+    database: draft.dataModels.length > 0 ? "Prisma + SQLite" : null,
+    auth: draft.features.some((feature) => /auth|login|session/i.test(feature)) ? "session-ready" : null,
+    folderRules: "Patch existing files first; keep browser-facing files preview-safe; prefer preview/ sibling files or .preview variants when the browser needs a safe entrypoint.",
+    naming: draft.projectName,
+    notes,
+  }
+}
+
+function serializeDraft(originalPrompt: string, draft: PromptDraft, plan: PromptWorkPlan, projectMemory: PromptMemorySeed) {
   const sections = [
-    `Original user request: "${inlineText(originalPrompt)}"`,
-    draft.projectName ? `Project name: ${draft.projectName}` : "",
-    draft.productType ? `Product type: ${draft.productType}` : "",
-    draft.coreGoal ? `Primary goal: ${draft.coreGoal}` : "",
-    formatSection("Pages or screens", draft.pages),
-    formatSection("Core features", draft.features),
-    formatSection("Suggested API routes", draft.apiRoutes),
-    formatSection("Suggested data models", draft.dataModels),
+    `User request (verbatim): "${inlineText(originalPrompt)}"`,
+    "Source of truth: use the user request above and the attached context only. Do not promote assumptions into facts.",
+    draft.projectName ? `Working title (inferred): ${draft.projectName}` : "",
+    draft.productType ? `Detected product type (inferred): ${draft.productType}` : "",
+    draft.coreGoal ? `Primary goal (inferred): ${draft.coreGoal}` : "",
+    formatSection("Inferred screens or pages", draft.pages),
+    formatSection("Inferred features", draft.features),
+    formatSection("Suggested API routes (only if needed)", draft.apiRoutes),
+    formatSection("Suggested data models (only if needed)", draft.dataModels),
     formatSection("UI direction", draft.uiStyle),
     formatSection("Assumptions", draft.assumptions),
-    "Implementation requirement: generate a practical, opinionated, production-ready Next.js starter with patch-first iteration. If an existing project is present, update files in place before adding new ones. Keep the preview fast, preserve working structure, and expose runtime feedback clearly.",
+    formatSection("Micro-task focus", draft.microTasks),
+    formatSection("Delivery rules", draft.deliveryRules),
+    "WORKPLAN_JSON (source of truth for execution order; do not skip patch-first steps or invent new scope):",
+    JSON.stringify(plan, null, 2),
+    "PROJECT_MEMORY_SEED (persist these decisions across future iterations):",
+    JSON.stringify(projectMemory, null, 2),
+    "Preview rule: keep browser-facing files self-contained, preview-safe, and aligned with the user brief.",
   ].filter(Boolean)
 
   return sections.join("\n\n")
@@ -232,5 +485,17 @@ function buildFallbackEnhancement(prompt: string): PromptEnhancementResult {
     summary: inferFallbackSummary(prompt),
     sourcesUsed: [],
     usedEnhancement: false,
+    plan: {
+      mode: "build",
+      objective: inferFallbackSummary(prompt),
+      focusSlice: inferFallbackSummary(prompt),
+      filePriority: [],
+      previewChecks: [],
+      repairLoop: [],
+      constraints: [],
+    },
+    projectMemory: {
+      notes: [],
+    },
   }
 }

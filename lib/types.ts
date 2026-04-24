@@ -3,11 +3,14 @@ export interface Project {
   id: string
   name: string
   description: string
+  framework?: string | null
   createdAt: Date
   updatedAt: Date
   userId: string
   status: "draft" | "deployed"
   deploymentUrl?: string
+  templateId?: string
+  memoryJson?: string | null
   versions: ProjectVersion[]
 }
 
@@ -24,6 +27,132 @@ export interface GeneratedFile {
   path: string
   content: string
   language: "tsx" | "ts" | "css" | "json" | "html" | "prisma" | "md" | "env"
+}
+
+export type PreviewViewport = "mobile" | "tablet" | "desktop"
+
+export type PreviewContextSource = "editor" | "sandbox" | "api" | "template" | "ai"
+
+export interface PreviewContextError {
+  message: string
+  filename?: string | null
+  lineno?: number | null
+  colno?: number | null
+  source?: string | null
+  stack?: string | null
+}
+
+export interface PreviewFileSnapshot {
+  path: string
+  language: GeneratedFile["language"]
+  size: number
+  isActive?: boolean
+  isPreviewVisible?: boolean
+  contentPreview?: string | null
+}
+
+export interface PreviewContext {
+  source: PreviewContextSource
+  projectId: string
+  projectName?: string | null
+  templateId?: string | null
+  activeTab: "preview" | "code"
+  viewport: PreviewViewport
+  currentVersion?: number | null
+  activeFilePath?: string | null
+  activeFileLanguage?: GeneratedFile["language"] | null
+  activeFileExcerpt?: string | null
+  previewError?: PreviewContextError | null
+  files: PreviewFileSnapshot[]
+  previewFiles: PreviewFileSnapshot[]
+  generatedFileCount: number
+  previewFileCount: number
+  notes?: string[]
+}
+
+export type DiagnosticSeverity = "error" | "warning" | "info"
+
+export interface DiagnosticEntry {
+  source: string
+  message: string
+  filePath?: string | null
+  line?: number | null
+  column?: number | null
+  severity: DiagnosticSeverity
+  code?: string | null
+}
+
+export interface EditorSelectionContext {
+  filePath: string
+  text: string
+  startLine?: number | null
+  startColumn?: number | null
+  endLine?: number | null
+  endColumn?: number | null
+}
+
+export interface GitDiffSnapshot {
+  baseRef?: string | null
+  headRef?: string | null
+  summary?: string | null
+  patch?: string | null
+  filesChanged: string[]
+}
+
+export interface TerminalOutputSnapshot {
+  command?: string | null
+  cwd?: string | null
+  output: string
+  exitCode?: number | null
+  completedAt?: string | null
+}
+
+export interface ProjectMemoryData {
+  framework?: string | null
+  uiStyle?: string | null
+  database?: string | null
+  auth?: string | null
+  folderRules?: string | null
+  naming?: string | null
+  notes?: string[]
+}
+
+export interface AIContextSnapshot {
+  projectId: string
+  projectName?: string | null
+  activeFile?: GeneratedFile | null
+  selectedText?: EditorSelectionContext | null
+  importedFiles?: GeneratedFile[]
+  nearbyFiles?: GeneratedFile[]
+  packageJson?: GeneratedFile | null
+  tsconfig?: GeneratedFile | null
+  diagnostics?: DiagnosticEntry[]
+  gitDiff?: GitDiffSnapshot | null
+  terminalOutput?: TerminalOutputSnapshot | null
+  projectMemory?: ProjectMemoryData | null
+}
+
+export interface RequestTelemetry {
+  projectId: string
+  taskType: string
+  modelUsed: string
+  provider?: string | null
+  latencyMs: number
+  tokens: number
+  success: boolean
+  errorMessage?: string | null
+  context?: AIContextSnapshot | null
+  createdAt?: string
+}
+
+export interface ModelScore {
+  modelName: string
+  taskType: string
+  provider?: string | null
+  successRate: number
+  avgLatency: number
+  avgRating: number
+  sampleCount: number
 }
 
 export interface PromptAttachment {
@@ -54,6 +183,9 @@ export interface ModelOption {
   modelName: string
   price: number
   isActive: boolean
+  rank?: number
+  description?: string
+  note?: string
 }
 
 export interface Conversation {
@@ -73,6 +205,8 @@ export interface AIGenerationRequest {
   context?: {
     existingFiles?: GeneratedFile[]
     template?: string
+    previewContext?: PreviewContext
+    aiContext?: AIContextSnapshot
   }
 }
 
@@ -109,6 +243,12 @@ export interface Template {
   thumbnail?: string
   files: GeneratedFile[]
   prompt: string
+  featured?: boolean
+  tags?: string[]
+  stack?: string[]
+  difficulty?: "beginner" | "intermediate" | "advanced"
+  estimatedMinutes?: number
+  previewNotes?: string
 }
 
 // Deployment types

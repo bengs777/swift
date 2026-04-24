@@ -136,7 +136,7 @@ export default function SettingsPage() {
               <CardContent>
                 <FieldGroup>
                   <Field>
-                    <FieldLabel>Kimi API Key</FieldLabel>
+                    <FieldLabel>OpenRouter API Key</FieldLabel>
                     <div className="flex gap-2">
                       <Input 
                         type="password" 
@@ -146,9 +146,9 @@ export default function SettingsPage() {
                       <Button variant="outline">Save</Button>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Your Kimi API key for AI generation. Get one at{" "}
-                      <a href="https://platform.moonshot.cn" className="text-foreground underline" target="_blank" rel="noopener noreferrer">
-                        platform.moonshot.cn
+                      Your OpenRouter API key for AI generation. Get one at{" "}
+                      <a href="https://openrouter.ai/settings/keys" className="text-foreground underline" target="_blank" rel="noopener noreferrer">
+                        openrouter.ai/settings/keys
                       </a>
                     </p>
                   </Field>

@@ -54,21 +54,19 @@ const normalizeAppUrl = (value: string) => {
   return `https://${normalized}`
 }
 
-const OPENAI_DEFAULT_MODEL = getEnv("OPENAI_DEFAULT_MODEL", "OPENAI_FALLBACK_MODEL") || "gpt-4o-mini"
+const OPENAI_DEFAULT_MODEL = getEnv("OPENAI_DEFAULT_MODEL", "OPENAI_FALLBACK_MODEL") || "qwen/qwen3-coder:free"
 const OPENAI_FALLBACK_MODEL = getEnv("OPENAI_FALLBACK_MODEL") || OPENAI_DEFAULT_MODEL
-const databaseUrl =
-  process.env.NODE_ENV === "production"
-    ? getEnv("TURSO_DATABASE_URL") || getEnv("DATABASE_URL")
-    : getEnv("DATABASE_URL") || getEnv("TURSO_DATABASE_URL")
+const DEV_OWNER_EMAIL = getEnv("DEV_OWNER_EMAIL") || "ibnualmugni1933@gmail.com"
+const tursoDatabaseUrl = getEnv("TURSO_DATABASE_URL")
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
-  databaseUrl,
+  tursoDatabaseUrl,
   nextAuthSecret: getEnv("NEXTAUTH_SECRET"),
   nextAuthUrl: getEnv("NEXTAUTH_URL"),
   googleClientId: getEnv("GOOGLE_CLIENT_ID"),
   googleClientSecret: getEnv("GOOGLE_CLIENT_SECRET"),
-  aiPrimaryProvider: normalizeProvider(getEnv("AI_PRIMARY_PROVIDER")) || "agentrouter",
+  aiPrimaryProvider: normalizeProvider(getEnv("AI_PRIMARY_PROVIDER")) || "openai",
   aiFallbackProvider: normalizeProvider(getEnv("AI_FALLBACK_PROVIDER")),
   aiTimeoutMs: getEnvNumber(20_000, "AI_TIMEOUT_MS"),
   aiMaxRetries: Math.max(1, Math.round(getEnvNumber(2, "AI_MAX_RETRIES"))),
@@ -84,10 +82,11 @@ export const env = {
   agentRouterModels: getEnvList("AGENT_ROUTER_MODELS", "AGENTROUTER_MODELS", "AIBLUESMINDS_FALLBACK_MODELS"),
   agentRouterFallbackModels: getEnvList("AI_FALLBACK_MODELS", "AGENT_ROUTER_FALLBACK_MODELS", "AGENTROUTER_FALLBACK_MODELS"),
   openAiApiKey: getEnv("OPENAI_API_KEY"),
-  openAiApiUrl: getEnv("OPENAI_API_URL") || "https://api.openai.com/v1",
+  openAiApiUrl: getEnv("OPENAI_API_URL") || "https://openrouter.ai/api/v1",
   openAiDefaultModel: OPENAI_DEFAULT_MODEL,
   openAiModels: getEnvList("OPENAI_MODELS", "OPENAI_MODEL_LIST"),
   openAiFallbackModel: OPENAI_FALLBACK_MODEL,
+  devOwnerEmail: DEV_OWNER_EMAIL,
   supabaseServiceRoleKey: getEnv("SUPABASE_SERVICE_ROLE_KEY"),
   supabaseAnonKey: getEnv("SUPABASE_ANON_KEY"),
   supabaseUrl: getEnv("NEXT_PUBLIC_SUPABASE_URL"),
@@ -97,7 +96,6 @@ export const env = {
   pakasirApiKey: getEnv("PAKASIR_API_KEY"),
   vercelAccessToken: getEnv("VERCEL_ACCESS_TOKEN"),
   tursoAuthToken: getEnv("TURSO_AUTH_TOKEN"),
-  tursoDatabaseUrl: getEnv("TURSO_DATABASE_URL"),
   // Crypto Payment
   cryptoPaymentPrivateKey: getEnv("CRYPTO_PAYMENT_PRIVATE_KEY"),
   cryptoPaymentAddress: getEnv("NEXT_PUBLIC_CRYPTO_PAYMENT_ADDRESS"),
@@ -113,7 +111,7 @@ export const env = {
 if (env.nodeEnv === "production") {
   const missing: string[] = []
 
-  if (!env.databaseUrl) missing.push("DATABASE_URL or TURSO_DATABASE_URL")
+  if (!env.tursoDatabaseUrl) missing.push("TURSO_DATABASE_URL")
   if (!env.nextAuthSecret) missing.push("NEXTAUTH_SECRET")
   if (!env.googleClientId) missing.push("GOOGLE_CLIENT_ID")
   if (!env.googleClientSecret) missing.push("GOOGLE_CLIENT_SECRET")

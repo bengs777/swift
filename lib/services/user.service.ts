@@ -1,8 +1,30 @@
 import { prisma } from '@/lib/db/client'
+import { env } from '@/lib/env'
 import { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 const FREE_CREDITS_AMOUNT = 5000
+const DEVELOPER_TREASURY_CREDITS = 1_000_000
+
+const normalizeEmail = (email: string) => email.trim().toLowerCase()
+const getDeveloperTreasuryEmail = () => normalizeEmail(env.devOwnerEmail)
+const isDeveloperTreasuryEmail = (email?: string | null) => {
+  if (!email) {
+    return false
+  }
+
+  return normalizeEmail(email) === getDeveloperTreasuryEmail()
+}
+
+const buildInitialAccountState = (email: string) => {
+  const developerAccount = isDeveloperTreasuryEmail(email)
+
+  return {
+    balance: developerAccount ? DEVELOPER_TREASURY_CREDITS : FREE_CREDITS_AMOUNT,
+    isDeveloperAccount: developerAccount,
+    welcomeBonusGrantedAt: new Date(),
+  }
+}
 
 const getCurrentMonthStartUtc = (date = new Date()) =>
   new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1))
@@ -13,35 +35,43 @@ export class UserService {
     name?: string | null,
     image?: string | null
   ) {
+    const accountState = buildInitialAccountState(email)
+
     return prisma.user.upsert({
       where: { email },
       update: {
         name: name || undefined,
         image: image || undefined,
+        ...(accountState.isDeveloperAccount ? { isDeveloperAccount: true } : {}),
       },
       create: {
         email,
         name,
         image,
-        balance: FREE_CREDITS_AMOUNT,
-        welcomeBonusGrantedAt: new Date(),
+        balance: accountState.balance,
+        isDeveloperAccount: accountState.isDeveloperAccount,
+        welcomeBonusGrantedAt: accountState.welcomeBonusGrantedAt,
       },
     })
   }
 
   static async findOrCreateUser(email: string, data: Prisma.UserCreateInput) {
+    const accountState = buildInitialAccountState(email)
+
     const user = await prisma.user.upsert({
       where: { email },
       create: {
         email,
         name: data.name ?? null,
         image: data.image ?? null,
-        balance: FREE_CREDITS_AMOUNT,
-        welcomeBonusGrantedAt: new Date(),
+        balance: accountState.balance,
+        isDeveloperAccount: accountState.isDeveloperAccount,
+        welcomeBonusGrantedAt: accountState.welcomeBonusGrantedAt,
       },
       update: {
         name: data.name || undefined,
         image: data.image || undefined,
+        ...(accountState.isDeveloperAccount ? { isDeveloperAccount: true } : {}),
       },
       include: {
         workspaces: {
@@ -89,8 +119,14 @@ export class UserService {
     image: string | null,
     passwordHash?: string
   ) {
+    const accountState = buildInitialAccountState(email)
+
     return prisma.$transaction(async (tx) => {
-      const welcomeBonus = FREE_CREDITS_AMOUNT
+      const welcomeBonus = accountState.balance
+      const billingKind = accountState.isDeveloperAccount ? "developer_seed" : "welcome_bonus"
+      const billingReference = accountState.isDeveloperAccount
+        ? `developer-seed:${normalizeEmail(email)}`
+        : `welcome-bonus:${normalizeEmail(email)}`
 
       const user = await tx.user.create({
         data: {
@@ -99,24 +135,28 @@ export class UserService {
           image,
           passwordHash,
           balance: welcomeBonus,
-          welcomeBonusGrantedAt: new Date(),
+          isDeveloperAccount: accountState.isDeveloperAccount,
+          welcomeBonusGrantedAt: accountState.welcomeBonusGrantedAt,
         },
       })
 
       await tx.billingTransaction.create({
         data: {
           userId: user.id,
-          kind: "welcome_bonus",
+          kind: billingKind,
           direction: "credit",
           amount: welcomeBonus,
           balanceBefore: 0,
           balanceAfter: welcomeBonus,
-          reference: `welcome-bonus:${user.id}`,
+          reference: billingReference,
           provider: "internal",
-          description: "One-time welcome balance for new account",
+          description: accountState.isDeveloperAccount
+            ? "Developer treasury seed"
+            : "One-time welcome balance for new account",
           metadata: JSON.stringify({
-            source: "signup",
+            source: accountState.isDeveloperAccount ? "developer_seed" : "signup",
             amount: welcomeBonus,
+            isDeveloperAccount: accountState.isDeveloperAccount,
           }),
         },
       })
@@ -152,16 +192,25 @@ export class UserService {
     const normalizedEmail = email.trim().toLowerCase()
     const currentMonthStart = getCurrentMonthStartUtc()
 
+    if (isDeveloperTreasuryEmail(normalizedEmail)) {
+      return
+    }
+
     const user = await prisma.user.findUnique({
       where: { email: normalizedEmail },
       select: {
         id: true,
         balance: true,
         welcomeBonusGrantedAt: true,
+        isDeveloperAccount: true,
       },
     })
 
     if (!user) {
+      return
+    }
+
+    if (user.isDeveloperAccount) {
       return
     }
 
@@ -176,10 +225,15 @@ export class UserService {
           id: true,
           balance: true,
           welcomeBonusGrantedAt: true,
+          isDeveloperAccount: true,
         },
       })
 
       if (!latestUser) {
+        return
+      }
+
+      if (latestUser.isDeveloperAccount) {
         return
       }
 
@@ -235,6 +289,7 @@ export class UserService {
         email: true,
         name: true,
         image: true,
+        isDeveloperAccount: true,
         memberships: {
           select: {
             id: true,
@@ -254,13 +309,14 @@ export class UserService {
         (typeof image === 'string' && image !== existingUser.image)
       const shouldCreateWorkspace =
         existingUser.memberships.length === 0 && existingUser.workspaces.length === 0
+      const shouldMarkDeveloper = isDeveloperTreasuryEmail(normalizedEmail) && !existingUser.isDeveloperAccount
 
-      if (!shouldUpdateProfile && !shouldCreateWorkspace) {
+      if (!shouldUpdateProfile && !shouldCreateWorkspace && !shouldMarkDeveloper) {
         return existingUser
       }
 
       return prisma.$transaction(async (tx) => {
-        if (shouldUpdateProfile) {
+        if (shouldUpdateProfile || shouldMarkDeveloper) {
           await tx.user.update({
             where: { id: existingUser.id },
             data: {
@@ -270,6 +326,7 @@ export class UserService {
               ...(typeof image === 'string' && image !== existingUser.image
                 ? { image }
                 : {}),
+              ...(shouldMarkDeveloper ? { isDeveloperAccount: true } : {}),
             },
           })
         }
@@ -318,6 +375,11 @@ export class UserService {
     password: string
   ) {
     const normalizedEmail = email.trim().toLowerCase()
+
+    if (isDeveloperTreasuryEmail(normalizedEmail)) {
+      throw new Error('DEVELOPER_ACCOUNT_RESERVED')
+    }
+
     const existingUser = await prisma.user.findUnique({
       where: { email: normalizedEmail },
       select: { id: true },

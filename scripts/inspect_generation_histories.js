@@ -1,16 +1,6 @@
-const fs = require('fs')
-const path = require('path')
+const { loadEnvConfig } = require('@next/env')
 
-try {
-  const envPath = path.resolve(process.cwd(), '.env')
-  if (fs.existsSync(envPath)) {
-    const envText = fs.readFileSync(envPath, 'utf8')
-    const m = envText.match(/^DATABASE_URL\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\n\r]*))/m)
-    if (m) {
-      process.env.DATABASE_URL = (m[1] || m[2] || m[3] || '').trim()
-    }
-  }
-} catch (e) {}
+loadEnvConfig(process.cwd())
 
 const args = new Set(process.argv.slice(2))
 const jsonMode = args.has('--json')
@@ -27,7 +17,23 @@ function getLineAndColumn(text, index) {
 
 async function main() {
   const { PrismaClient } = require('@prisma/client')
-  const prisma = new PrismaClient()
+  const { PrismaLibSQL } = require('@prisma/adapter-libsql')
+  const { createClient } = require('@libsql/client')
+
+  const databaseUrl = process.env.TURSO_DATABASE_URL || ''
+  if (!databaseUrl) {
+    throw new Error('TURSO_DATABASE_URL is required')
+  }
+
+  const prisma = new PrismaClient({
+    adapter: new PrismaLibSQL(
+      createClient({
+        url: databaseUrl,
+        authToken: process.env.TURSO_AUTH_TOKEN || undefined,
+      })
+    ),
+    log: ['warn', 'error'],
+  })
   try {
     const histories = await prisma.generationHistory.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })
     if (!histories || histories.length === 0) {

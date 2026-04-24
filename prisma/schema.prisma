@@ -5,7 +5,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = env("TURSO_DATABASE_URL")
 }
 
 // User accounts from Google OAuth
@@ -16,6 +16,7 @@ model User {
   image         String?
   passwordHash  String?
   balance       Int        @default(0)
+  isDeveloperAccount Boolean @default(false)
   welcomeBonusGrantedAt DateTime?
   emailVerified DateTime?
   createdAt     DateTime   @default(now())
@@ -29,8 +30,15 @@ model User {
   usageLogs     UsageLog[]
   billingTransactions BillingTransaction[]
   topUpOrders   TopUpOrder[]
+  creditGrantsSent CreditGrant[] @relation("CreditGrantFromUser")
+  creditGrantsReceived CreditGrant[] @relation("CreditGrantToUser")
+  creditGrantsCreated CreditGrant[] @relation("CreditGrantCreatedBy")
+  creditGrantsReversed CreditGrant[] @relation("CreditGrantReversedBy")
+  billingTransactionsAsActor BillingTransaction[] @relation("BillingTransactionActor")
+  billingTransactionsAsCounterparty BillingTransaction[] @relation("BillingTransactionCounterparty")
 
   @@index([email])
+  @@index([isDeveloperAccount])
 }
 
 // OAuth accounts
@@ -120,17 +128,22 @@ model Project {
   workspaceId String
   name        String
   description String?
+  framework   String   @default("next")
   prompt      String?
+  templateId  String?
   customDomain String?
   domainVerified Boolean @default(false)
+  memoryJson  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   files     ProjectFile[]
   history   GenerationHistory[]
+  requestLogs RequestLog[]
 
   @@index([workspaceId])
+  @@index([templateId])
 }
 
 // Generated files per project
@@ -164,6 +177,31 @@ model GenerationHistory {
   @@index([projectId])
   @@index([createdAt])
   @@index([projectId, idempotencyKey])
+}
+
+// Request telemetry and diagnostics for AI operations
+model RequestLog {
+  id            String   @id @default(cuid())
+  projectId     String
+  taskType      String
+  modelConfigId String?
+  modelUsed     String
+  provider      String?
+  latencyMs     Int      @default(0)
+  tokens        Int      @default(0)
+  success       Boolean  @default(false)
+  errorMessage  String?
+  contextJson   String?
+  createdAt     DateTime @default(now())
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  modelConfig ModelConfig? @relation(fields: [modelConfigId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@index([taskType])
+  @@index([modelUsed])
+  @@index([provider])
+  @@index([success])
 }
 
 // API Keys for workspace
@@ -201,6 +239,9 @@ model Subscription {
 model BillingTransaction {
   id                String   @id @default(cuid())
   userId            String
+  grantId           String?
+  actorUserId       String?
+  counterpartyUserId String?
   kind              String
   direction         String
   amount            Int
@@ -214,10 +255,48 @@ model BillingTransaction {
   createdAt         DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grant CreditGrant? @relation(fields: [grantId], references: [id], onDelete: SetNull)
+  actor User? @relation("BillingTransactionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  counterparty User? @relation("BillingTransactionCounterparty", fields: [counterpartyUserId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([grantId])
+  @@index([actorUserId])
+  @@index([counterpartyUserId])
   @@index([kind])
   @@index([provider, providerReference])
+  @@index([createdAt])
+}
+
+model CreditGrant {
+  id                String   @id @default(cuid())
+  reference         String   @unique
+  fromUserId        String
+  toUserId          String
+  amount            Int
+  reason            String
+  note              String?
+  status            String   @default("posted")
+  createdByUserId   String
+  reversedByUserId  String?
+  idempotencyKey    String?  @unique
+  postedAt          DateTime?
+  reversedAt        DateTime?
+  metadata          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  fromUser User @relation("CreditGrantFromUser", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser User @relation("CreditGrantToUser", fields: [toUserId], references: [id], onDelete: Cascade)
+  createdBy User @relation("CreditGrantCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  reversedBy User? @relation("CreditGrantReversedBy", fields: [reversedByUserId], references: [id], onDelete: SetNull)
+  billingTransactions BillingTransaction[]
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([createdByUserId])
+  @@index([reversedByUserId])
+  @@index([status])
   @@index([createdAt])
 }
 
@@ -300,9 +379,29 @@ model ModelConfig {
   updatedAt DateTime @updatedAt
 
   usageLogs UsageLog[]
+  requestLogs RequestLog[]
 
   @@index([provider])
   @@index([isActive])
+}
+
+// Aggregated model performance scores per task type
+model ModelScore {
+  id          String   @id @default(cuid())
+  modelName   String
+  taskType    String
+  provider    String?
+  successRate Float    @default(0)
+  avgLatency  Int      @default(0)
+  avgRating   Float    @default(0)
+  sampleCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([modelName, taskType])
+  @@index([taskType])
+  @@index([modelName])
+  @@index([provider])
 }
 
 model UsageLog {

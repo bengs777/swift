@@ -402,6 +402,11 @@ function buildImportFallbackDeclarations(clause: string, source: string) {
     "Suspense",
   ])
 
+  const trimmedClause = clause.trim()
+  if (trimmedClause.startsWith("type ")) {
+    return ""
+  }
+
   const namespaceMatch = clause.match(/^\*\s+as\s+([A-Za-z_$][\w$]*)$/)
   if (namespaceMatch?.[1]) {
     const name = namespaceMatch[1]
@@ -417,6 +422,7 @@ function buildImportFallbackDeclarations(clause: string, source: string) {
     for (const item of namedMatch[1].split(",")) {
       const token = item.trim()
       if (!token) continue
+      if (token.startsWith("type ")) continue
       const aliasMatch = token.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/)
       const imported = aliasMatch?.[1] || token
       const local = aliasMatch?.[2] || imported
@@ -441,6 +447,7 @@ function buildImportFallbackDeclarations(clause: string, source: string) {
     for (const item of mixedMatch[2].split(",")) {
       const token = item.trim()
       if (!token) continue
+      if (token.startsWith("type ")) continue
       const aliasMatch = token.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/)
       const imported = aliasMatch?.[1] || token
       const local = aliasMatch?.[2] || imported

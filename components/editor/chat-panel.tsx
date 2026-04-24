@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Zap, Send, Paperclip, Image as ImageIcon, ShieldAlert } from "lucide-react"
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
+import { Zap, Send, Paperclip, Image as ImageIcon, ShieldAlert, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Message } from "@/app/dashboard/project/[id]/page"
 import type { ProviderStatus } from "@/app/dashboard/project/[id]/page"
@@ -29,7 +30,8 @@ interface ChatPanelProps {
     content: string,
     selectedModel: string,
     attachments: PromptAttachment[],
-    promptLanguage?: PromptLanguage
+    promptLanguage?: PromptLanguage,
+    previewErrorContext?: string | null
   ) => void
   isGenerating: boolean
   modelOptions: ModelOption[]
@@ -37,6 +39,7 @@ interface ChatPanelProps {
   onModelChange: (model: string) => void
   onViewCode?: () => void
   providerStatus?: ProviderStatus | null
+  previewErrorContext?: string | null
 }
 
 type EstimateState = {
@@ -73,11 +76,16 @@ type PromptPanelCopy = {
   emptySuggestions: string[]
 }
 
+type PromptStructureHelper = {
+  label: string
+  description: string
+}
+
 
 const PROMPT_PANEL_COPY: Record<PromptLanguage, PromptPanelCopy> = {
   id: {
-    languageLabel: "Mode bahasa prompt & jawaban",
-    languageDescription: "Pilih Indonesia atau English untuk template, contoh, saran prompt, dan jawaban AI.",
+    languageLabel: "Bahasa prompt",
+    languageDescription: "Pilih Indonesia atau English untuk template, contoh, dan brief terstruktur yang dikirim ke AI.",
     templateOptions: {
       landing: "Landing page",
       auth: "Alur auth",
@@ -91,22 +99,22 @@ const PROMPT_PANEL_COPY: Record<PromptLanguage, PromptPanelCopy> = {
     },
     useTemplate: "Gunakan template",
     readyBadge: "Siap dipakai",
-    examplesTitle: "Contoh prompt terbaik",
-    examplesDescription: "Klik salah satu contoh untuk mengisi prompt yang lebih jelas dan efisien.",
-    promptPlaceholder: "Jelaskan app, workspace, atau perubahan yang ingin dibuat...",
-    promptHint: "Tekan Enter untuk mengirim, Shift+Enter untuk baris baru. Unggah gambar/file untuk dijadikan konteks prompt.",
+    examplesTitle: "Contoh prompt",
+    examplesDescription: "Klik contoh untuk mengisi prompt yang lebih jelas.",
+    promptPlaceholder: "Tulis brief singkat: tujuan, fitur wajib, UI / visual, data / backend, batasan, preview...",
+    promptHint: "Enter untuk kirim, Shift+Enter untuk baris baru.",
     charactersLabel: "karakter",
-    emptyTitle: "Mulai membangun",
-    emptyDescription: "Kalau ingin bikin web atau workspace seperti Lovable, jelaskan tujuan, halaman, fitur, dan gaya UI yang kamu mau.",
+    emptyTitle: "Mulai dari prompt singkat",
+    emptyDescription: "Kalau ingin bikin web atau workspace, isi Tujuan, Fitur wajib, UI, Data / backend, Batasan, dan Preview.",
     emptySuggestions: [
-      "Buat workspace builder mirip Lovable",
-      "Buat form login dengan validasi",
-      "Buat dashboard dengan chart",
+      "Buat workspace builder dengan Tujuan, Fitur wajib, UI, Data / backend, dan Preview",
+      "Buat form login dengan validasi dan session-ready flow",
+      "Buat dashboard dengan chart, tabel, dan state loading",
     ],
   },
   en: {
-    languageLabel: "Prompt & reply language",
-    languageDescription: "Choose Indonesian or English for templates, examples, prompt suggestions, and AI replies.",
+    languageLabel: "Prompt language",
+    languageDescription: "Choose Indonesian or English for templates, examples, and the structured brief sent to the AI.",
     templateOptions: {
       landing: "Landing page",
       auth: "Auth flow",
@@ -120,19 +128,38 @@ const PROMPT_PANEL_COPY: Record<PromptLanguage, PromptPanelCopy> = {
     },
     useTemplate: "Use template",
     readyBadge: "Ready to use",
-    examplesTitle: "Best prompt examples",
-    examplesDescription: "Click an example to fill the prompt with a clearer and more focused brief.",
-    promptPlaceholder: "Describe the app, workspace, or change you want to build...",
-    promptHint: "Press Enter to send, Shift+Enter for new line. Upload images/files to use as prompt context.",
+    examplesTitle: "Prompt examples",
+    examplesDescription: "Click an example to fill the prompt with a clearer brief.",
+    promptPlaceholder: "Write a short brief: goal, must-have features, UI / visual, data / backend, constraints, preview...",
+    promptHint: "Press Enter to send, Shift+Enter for a new line.",
     charactersLabel: "characters",
-    emptyTitle: "Start building",
-    emptyDescription: "If you want a Lovable-style web app or workspace, describe the goal, screens, features, and UI direction.",
+    emptyTitle: "Start with a short prompt",
+    emptyDescription: "If you want a web app or workspace, fill Goal, Must-have features, UI, Data / backend, Constraints, and Preview.",
     emptySuggestions: [
-      "Build a Lovable-like workspace builder",
-      "Build a login form with validation",
-      "Make a dashboard with charts",
+      "Build a workspace builder with Goal, Must-have features, UI, Data / backend, and Preview",
+      "Build a login form with validation and session-ready flow",
+      "Build a dashboard with charts, tables, and loading states",
     ],
   },
+}
+
+const PROMPT_STRUCTURE_HELPERS: Record<PromptLanguage, PromptStructureHelper[]> = {
+  id: [
+    { label: "Tujuan", description: "Apa hasil akhir yang ingin dibuat?" },
+    { label: "Fitur wajib", description: "Komponen, halaman, atau flow yang harus ada." },
+    { label: "UI / visual", description: "Tentukan feel, warna, dan gaya layout." },
+    { label: "Data / backend", description: "Data, route, service, atau model yang dibutuhkan." },
+    { label: "Batasan", description: "Hal yang tidak boleh ditambah atau diubah." },
+    { label: "Preview", description: "Bagaimana hasil harus tampil di browser preview." },
+  ],
+  en: [
+    { label: "Goal", description: "What should be built in the end?" },
+    { label: "Must-have features", description: "Screens, components, or flows that must exist." },
+    { label: "UI / visual", description: "Set the feel, colors, and layout style." },
+    { label: "Data / backend", description: "Data, routes, services, or models required." },
+    { label: "Constraints", description: "What should not be added or changed?" },
+    { label: "Preview", description: "How the result should appear in browser preview." },
+  ],
 }
 
 const PROMPT_EXAMPLES: Record<PromptLanguage, Record<PromptTemplateKey, PromptExample[]>> = {
@@ -340,11 +367,13 @@ export function ChatPanel({
   onModelChange,
   onViewCode,
   providerStatus,
+  previewErrorContext,
 }: ChatPanelProps) {
   const [input, setInput] = useState("")
   const [templateKey, setTemplateKey] = useState<PromptTemplateKey>("workspace")
   const [templateVariant, setTemplateVariant] = useState<TemplateVariant>("short")
   const [promptLanguage, setPromptLanguage] = useState<PromptLanguage>("id")
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false)
   const [estimate, setEstimate] = useState<EstimateState>({ isLoading: false })
   const [attachments, setAttachments] = useState<PromptAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
@@ -353,6 +382,11 @@ export function ChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const selectedModelInfo = modelOptions.find((model) => model.key === selectedModel)
+  const selectedModelLabel = selectedModelInfo
+    ? sanitizeModelDisplayName(selectedModelInfo.label)
+    : "Pilih AI"
+  const selectedModelDescription =
+    selectedModelInfo?.description || selectedModelInfo?.note || "OpenRouter"
   const promptCopy = PROMPT_PANEL_COPY[promptLanguage]
   const promptIntent = analyzePromptIntent(input, promptLanguage)
   const promptExamples = getPromptExamples(templateKey, promptLanguage)
@@ -444,7 +478,7 @@ export function ChatPanel({
 
   const handleSubmit = () => {
     if (!input.trim() || !selectedModel || isGenerating || isReadingFiles || input.length > MAX_PROMPT_LENGTH) return
-    onSendMessage(input.trim(), selectedModel, attachments, promptLanguage)
+    onSendMessage(input.trim(), selectedModel, attachments, promptLanguage, previewErrorContext)
     setInput("")
     setAttachments([])
     setAttachmentError(null)
@@ -457,6 +491,26 @@ export function ChatPanel({
   const handleApplyPromptExample = (example: PromptExample) => {
     setTemplateVariant(example.variant)
     setInput(example.prompt)
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+    })
+  }
+
+  const handleInsertPromptLine = (label: string) => {
+    setInput((current) => {
+      const normalizedLabel = `${label}:`
+      const alreadyIncluded = current
+        .split("\n")
+        .some((line) => line.trim().toLowerCase().startsWith(normalizedLabel.toLowerCase()))
+
+      if (alreadyIncluded) {
+        return current
+      }
+
+      const trimmedCurrent = current.trimEnd()
+      return trimmedCurrent ? `${trimmedCurrent}\n\n${label}:\n- ` : `${label}:\n- `
+    })
+
     window.requestAnimationFrame(() => {
       textareaRef.current?.focus()
     })
@@ -557,205 +611,216 @@ export function ChatPanel({
       <div className="shrink-0 border-t border-border p-4">
         <div className="max-h-[42vh] space-y-3 overflow-y-auto pr-1">
           <ProviderHealthCard status={providerStatus} />
-          <div className="rounded-xl border border-border bg-muted/30 p-3">
-            <div className="flex items-center justify-between gap-3">
+          <div className="rounded-2xl border border-border bg-card/80 p-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-foreground">{promptCopy.languageLabel}</p>
                 <p className="text-xs text-muted-foreground">{promptCopy.languageDescription}</p>
               </div>
-              <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-background p-1">
+              <div className="flex items-center gap-2">
                 <Button
                   type="button"
                   size="sm"
-                  variant={promptLanguage === "id" ? "default" : "ghost"}
-                  className="h-8 px-3"
-                  onClick={() => setPromptLanguage("id")}
+                  variant={showAdvancedTools ? "default" : "outline"}
+                  className="h-8 gap-2 px-3"
+                  onClick={() => setShowAdvancedTools((current) => !current)}
                 >
-                  {PROMPT_LANGUAGE_LABELS.id}
+                  Advanced
+                  <ChevronDown className={cn("h-4 w-4 transition-transform", showAdvancedTools && "rotate-180")} />
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={promptLanguage === "en" ? "default" : "ghost"}
-                  className="h-8 px-3"
-                  onClick={() => setPromptLanguage("en")}
-                >
-                  {PROMPT_LANGUAGE_LABELS.en}
-                </Button>
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-            <Select
-              value={templateKey}
-              onValueChange={(value) => setTemplateKey(value as PromptTemplateKey)}
-              disabled={isGenerating}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="Template" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="workspace">{promptCopy.templateOptions.workspace}</SelectItem>
-                <SelectItem value="landing">{promptCopy.templateOptions.landing}</SelectItem>
-                <SelectItem value="auth">{promptCopy.templateOptions.auth}</SelectItem>
-                <SelectItem value="dashboard">{promptCopy.templateOptions.dashboard}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={templateVariant}
-              onValueChange={(value) => setTemplateVariant(value as TemplateVariant)}
-              disabled={isGenerating}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="Variant" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="short">{promptCopy.variantOptions.short}</SelectItem>
-                <SelectItem value="medium">{promptCopy.variantOptions.medium}</SelectItem>
-                <SelectItem value="extended">{promptCopy.variantOptions.extended}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button type="button" variant="outline" className="h-9" onClick={handleApplyTemplate} disabled={isGenerating}>
-              {promptCopy.useTemplate}
-            </Button>
-          </div>
-          <div className="rounded-xl border border-border bg-muted/30 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-foreground">{promptCopy.examplesTitle}</p>
-                <p className="text-xs text-muted-foreground">{promptCopy.examplesDescription}</p>
-              </div>
-              <span className="rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground">
-                {promptCopy.readyBadge}
-              </span>
-            </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-3">
-              {promptExamples.map((example) => (
-                <button
-                  key={example.title}
-                  type="button"
-                  onClick={() => handleApplyPromptExample(example)}
-                  disabled={isGenerating}
-                  className={cn(
-                    "rounded-xl border border-border bg-background p-3 text-left transition-colors hover:border-foreground/20 hover:bg-card",
-                    isGenerating && "cursor-not-allowed opacity-60"
-                  )}
-                >
-                  <span className="inline-flex rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {example.label}
-                  </span>
-                  <p className="mt-2 text-sm font-medium text-foreground">{example.title}</p>
-                  <p className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">
-                    {example.prompt}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </div>
-          <Textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={promptCopy.promptPlaceholder}
-            className="min-h-[80px] resize-none"
-            disabled={isGenerating}
-          />
-          {input.trim() && (
-            <div
-              className={cn(
-                "rounded-lg border px-3 py-2 text-xs",
-                promptIntent.mode === "chat"
-                  ? "border-sky-500/30 bg-sky-500/10"
-                  : promptIntent.needsClarification
-                    ? "border-amber-500/30 bg-amber-500/10"
-                    : "border-emerald-500/30 bg-emerald-500/10"
-              )}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-medium text-foreground">{promptIntent.label}</p>
-                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                  {promptIntent.mode === "chat"
-                    ? "Chat"
-                    : promptIntent.needsClarification
-                      ? "Clarify"
-                      : "Build"}
-                </span>
-              </div>
-              <p className="mt-1 text-muted-foreground">{promptIntent.summary}</p>
-              <p className="mt-2 text-muted-foreground">{promptIntent.nextStep}</p>
-              <p className="mt-2 font-medium text-foreground">{promptIntent.example}</p>
-            </div>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            multiple
-            accept="image/*,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.html,.css,.prisma,.env"
-            onChange={handleFileChange}
-            disabled={isGenerating || isReadingFiles}
-          />
-          {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {attachments.map((attachment) => (
-                <span
-                  key={attachment.id}
-                  className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground"
-                >
-                  {attachment.kind === "image" ? "Image" : "File"}: {attachment.name}
-                  <button
+                <div className="inline-flex items-center gap-1 rounded-full border border-border bg-background p-1">
+                  <Button
                     type="button"
-                    className="text-muted-foreground hover:text-foreground"
-                    onClick={() => removeAttachment(attachment.id)}
-                    disabled={isGenerating || isReadingFiles}
-                    aria-label={`Remove ${attachment.name}`}
+                    size="sm"
+                    variant={promptLanguage === "id" ? "default" : "ghost"}
+                    className="h-8 rounded-full px-3"
+                    onClick={() => setPromptLanguage("id")}
                   >
-                    x
-                  </button>
-                </span>
+                    {PROMPT_LANGUAGE_LABELS.id}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={promptLanguage === "en" ? "default" : "ghost"}
+                    className="h-8 rounded-full px-3"
+                    onClick={() => setPromptLanguage("en")}
+                  >
+                    {PROMPT_LANGUAGE_LABELS.en}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {PROMPT_STRUCTURE_HELPERS[promptLanguage].map((helper) => (
+                <Button
+                  key={helper.label}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-full px-3 text-xs"
+                  title={helper.description}
+                  onClick={() => handleInsertPromptLine(helper.label)}
+                  disabled={isGenerating}
+                >
+                  {helper.label}
+                </Button>
               ))}
             </div>
-          )}
-          {attachmentError && (
-            <p className="text-xs text-destructive">{attachmentError}</p>
-          )}
-          {input.trim() && (
-            <div
-              className={cn(
-                "rounded-lg border px-3 py-2 text-xs",
-                estimate.error
-                  ? "border-amber-500/40 bg-amber-500/10 text-amber-100"
-                  : estimate.canAfford === false
-                    ? "border-rose-500/40 bg-rose-500/10 text-rose-100"
-                    : "border-border bg-card/70 text-muted-foreground"
-              )}
-            >
-              {estimate.isLoading ? (
-                <p>Estimating request cost...</p>
-              ) : estimate.error ? (
-                <p>
-                  Estimation unavailable ({estimate.error}). Flat model price: Rp {(
-                    selectedModelInfo?.price || 0
-                  ).toLocaleString("id-ID")}.
-                </p>
-              ) : (
-                <div className="flex flex-wrap items-center gap-3">
-                  <span>Est. tokens: {(estimate.estimatedTokens || 0).toLocaleString("id-ID")}</span>
-                  <span>Est. cost: Rp {(estimate.estimatedCost || selectedModelInfo?.price || 0).toLocaleString("id-ID")}</span>
-                  {typeof estimate.currentBalance === "number" && (
-                    <span>Balance: Rp {estimate.currentBalance.toLocaleString("id-ID")}</span>
+
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={promptCopy.promptPlaceholder}
+              className="mt-3 min-h-[140px] resize-none border-border bg-background/70 leading-6"
+              disabled={isGenerating}
+            />
+
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>{promptCopy.promptHint}</span>
+              <span className={cn(input.length > MAX_PROMPT_LENGTH && "text-destructive")}>{input.length.toLocaleString("id-ID")} / {MAX_PROMPT_LENGTH.toLocaleString("id-ID")} {promptCopy.charactersLabel}</span>
+            </div>
+
+            {input.trim() && (
+              <div
+                className={cn(
+                  "mt-3 rounded-xl border px-3 py-2 text-xs",
+                  promptIntent.mode === "chat"
+                    ? "border-sky-500/30 bg-sky-500/10"
+                    : promptIntent.mode === "inspect"
+                      ? "border-violet-500/30 bg-violet-500/10"
+                    : promptIntent.needsClarification
+                      ? "border-amber-500/30 bg-amber-500/10"
+                      : "border-emerald-500/30 bg-emerald-500/10"
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium text-foreground">{promptIntent.label}</p>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {promptIntent.mode === "chat"
+                      ? "Chat"
+                      : promptIntent.mode === "inspect"
+                        ? "Inspect"
+                      : promptIntent.needsClarification
+                        ? "Clarify"
+                        : "Build"}
+                  </span>
+                </div>
+                <p className="mt-1 text-muted-foreground">{promptIntent.summary}</p>
+                <p className="mt-1 text-muted-foreground">{promptIntent.nextStep}</p>
+              </div>
+            )}
+          </div>
+
+          <Collapsible open={showAdvancedTools}>
+            <CollapsibleContent className="space-y-3">
+              <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                <Select
+                  value={templateKey}
+                  onValueChange={(value) => setTemplateKey(value as PromptTemplateKey)}
+                  disabled={isGenerating}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="workspace">{promptCopy.templateOptions.workspace}</SelectItem>
+                    <SelectItem value="landing">{promptCopy.templateOptions.landing}</SelectItem>
+                    <SelectItem value="auth">{promptCopy.templateOptions.auth}</SelectItem>
+                    <SelectItem value="dashboard">{promptCopy.templateOptions.dashboard}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={templateVariant}
+                  onValueChange={(value) => setTemplateVariant(value as TemplateVariant)}
+                  disabled={isGenerating}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Variant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="short">{promptCopy.variantOptions.short}</SelectItem>
+                    <SelectItem value="medium">{promptCopy.variantOptions.medium}</SelectItem>
+                    <SelectItem value="extended">{promptCopy.variantOptions.extended}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button type="button" variant="outline" className="h-9" onClick={handleApplyTemplate} disabled={isGenerating}>
+                  {promptCopy.useTemplate}
+                </Button>
+              </div>
+              <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{promptCopy.examplesTitle}</p>
+                    <p className="text-xs text-muted-foreground">{promptCopy.examplesDescription}</p>
+                  </div>
+                  <span className="rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground">
+                    {promptCopy.readyBadge}
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  {promptExamples.map((example) => (
+                    <button
+                      key={example.title}
+                      type="button"
+                      onClick={() => handleApplyPromptExample(example)}
+                      disabled={isGenerating}
+                      className={cn(
+                        "rounded-xl border border-border bg-background p-3 text-left transition-colors hover:border-foreground/20 hover:bg-card",
+                        isGenerating && "cursor-not-allowed opacity-60"
+                      )}
+                    >
+                      <span className="inline-flex rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {example.label}
+                      </span>
+                      <p className="mt-2 text-sm font-medium text-foreground">{example.title}</p>
+                      <p className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">
+                        {example.prompt}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {input.trim() && (
+                <div
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-xs",
+                    estimate.error
+                      ? "border-amber-500/40 bg-amber-500/10 text-amber-100"
+                      : estimate.canAfford === false
+                        ? "border-rose-500/40 bg-rose-500/10 text-rose-100"
+                        : "border-border bg-card/70 text-muted-foreground"
                   )}
-                  {typeof estimate.remainingBalance === "number" && (
-                    <span>After request: Rp {estimate.remainingBalance.toLocaleString("id-ID")}</span>
-                  )}
-                  {estimate.canAfford === false && (
-                    <span className="font-medium">Insufficient balance for this request.</span>
+                >
+                  {estimate.isLoading ? (
+                    <p>Estimating request cost...</p>
+                  ) : estimate.error ? (
+                    <p>
+                      Estimation unavailable ({estimate.error}). Flat model price: Rp {(
+                        selectedModelInfo?.price || 0
+                      ).toLocaleString("id-ID")}.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span>Est. tokens: {(estimate.estimatedTokens || 0).toLocaleString("id-ID")}</span>
+                      <span>Est. cost: Rp {(estimate.estimatedCost || selectedModelInfo?.price || 0).toLocaleString("id-ID")}</span>
+                      {typeof estimate.currentBalance === "number" && (
+                        <span>Balance: Rp {estimate.currentBalance.toLocaleString("id-ID")}</span>
+                      )}
+                      {typeof estimate.remainingBalance === "number" && (
+                        <span>After request: Rp {estimate.remainingBalance.toLocaleString("id-ID")}</span>
+                      )}
+                      {estimate.canAfford === false && (
+                        <span className="font-medium">Insufficient balance for this request.</span>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
-            </div>
-          )}
+            </CollapsibleContent>
+          </Collapsible>
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -778,13 +843,43 @@ export function ChatPanel({
               <ImageIcon className="h-4 w-4" />
             </Button>
             <Select value={selectedModel} onValueChange={onModelChange} disabled={isGenerating}>
-              <SelectTrigger className="h-9 min-w-[220px]">
-                <SelectValue placeholder="Select model" />
+              <SelectTrigger className="h-auto min-w-[280px] items-start gap-3 py-2 text-left">
+                <SelectValue className="sr-only" placeholder="Select model" />
+                <div className="flex min-w-0 flex-col text-left">
+                  <span className="truncate text-sm font-medium text-foreground">{selectedModelLabel}</span>
+                  <span className="truncate text-xs text-muted-foreground">{selectedModelDescription}</span>
+                </div>
+                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
+                  Rp {(selectedModelInfo?.price ?? 0).toLocaleString("id-ID")}/request
+                </span>
               </SelectTrigger>
-              <SelectContent>
-                {modelOptions.map((model) => (
-                  <SelectItem key={model.key} value={model.key}>
-                    {sanitizeModelDisplayName(model.label)} (Rp {model.price.toLocaleString("id-ID")}/request)
+              <SelectContent className="w-[360px] p-2">
+                {modelOptions.map((model, index) => (
+                  <SelectItem
+                    key={model.key}
+                    value={model.key}
+                    className="items-start gap-3 rounded-xl px-3 py-2"
+                  >
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border text-[10px] font-medium text-muted-foreground">
+                      {model.rank ?? index + 1}
+                    </span>
+                    <div className="grid gap-0.5 text-left">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-foreground">{sanitizeModelDisplayName(model.label)}</span>
+                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          OpenRouter
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          Rp {model.price.toLocaleString("id-ID")}/request
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {model.description || model.note || "AI model"}
+                      </p>
+                      {model.note && (
+                        <p className="text-[11px] text-muted-foreground">{model.note}</p>
+                      )}
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -800,15 +895,6 @@ export function ChatPanel({
             </Button>
           </div>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          {promptCopy.promptHint}
-        </p>
-        <p className={cn(
-          "mt-1 text-xs",
-          input.length > MAX_PROMPT_LENGTH ? "text-destructive" : "text-muted-foreground"
-        )}>
-          {input.length.toLocaleString("id-ID")} / {MAX_PROMPT_LENGTH.toLocaleString("id-ID")} {promptCopy.charactersLabel}
-        </p>
       </div>
     </div>
   )

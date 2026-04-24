@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
 import { useCryptoPayment } from "@/hooks/use-crypto-payment"
+import { OPEN_ALL_FEATURES_DURING_LAUNCH } from "@/lib/launch"
 
 type BillingOverview = {
   balance: number
@@ -148,8 +149,9 @@ export function BillingPanel() {
   }, [selectedWorkspaceId, workspaces])
 
   const activeSubscription = activeWorkspace?.workspace.subscription || null
-  const activePlan = getBillingPlan(activeSubscription?.plan)
-  const activePlanId = normalizeBillingPlanId(activeSubscription?.plan)
+  const isLaunchMode = OPEN_ALL_FEATURES_DURING_LAUNCH
+  const activePlan = isLaunchMode ? getBillingPlan("studio") : getBillingPlan(activeSubscription?.plan)
+  const activePlanId = isLaunchMode ? "studio" : normalizeBillingPlanId(activeSubscription?.plan)
 
   const topUpOrders = overview?.topUpOrders || []
   const balanceTopUpOrders = useMemo(
@@ -493,6 +495,11 @@ export function BillingPanel() {
                 {activeWorkspace && (
                   <Badge variant="secondary" className="rounded-full px-2.5 py-1 text-[11px]">
                     {activePlan.name}
+                    {isLaunchMode && (
+                      <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                        Launch mode aktif: semua fitur dibuka sementara untuk QA dan pencarian bug.
+                      </div>
+                    )}
                   </Badge>
                 )}
               </div>
@@ -539,7 +546,7 @@ export function BillingPanel() {
 
               <div className="mt-4 rounded-2xl border border-border/70 bg-card/80 p-4">
                 <div className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
-                  Unlocked by current plan
+                  {isLaunchMode ? "Launch access" : "Unlocked by current plan"}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {activePlan.unlocks.map((feature) => (
@@ -555,18 +562,25 @@ export function BillingPanel() {
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {BILLING_PLANS.map((plan) => (
-                <PlanPurchaseCard
-                  key={plan.id}
-                  plan={plan}
-                  activePlanId={activePlanId}
-                  hasWorkspace={Boolean(activeWorkspace)}
-                  isWorkspaceLoading={isWorkspaceLoading}
-                  onPurchase={(method) => void handlePurchasePlan(plan.id, method)}
-                />
-              ))}
-            </div>
+            {isLaunchMode ? (
+              <div className="rounded-3xl border border-dashed border-emerald-500/30 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-100">
+                Launch mode aktif, jadi kartu paket Builder/Studio disembunyikan sementara. Semua fitur sudah dibuka untuk QA dan bug hunting.
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {BILLING_PLANS.map((plan) => (
+                  <PlanPurchaseCard
+                    key={plan.id}
+                    plan={plan}
+                    activePlanId={activePlanId}
+                    hasWorkspace={Boolean(activeWorkspace)}
+                    isWorkspaceLoading={isWorkspaceLoading}
+                    launchMode={isLaunchMode}
+                    onPurchase={(method) => void handlePurchasePlan(plan.id, method)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -936,12 +950,14 @@ function PlanPurchaseCard({
   activePlanId,
   hasWorkspace,
   isWorkspaceLoading,
+  launchMode,
   onPurchase,
 }: {
   plan: (typeof BILLING_PLANS)[number]
   activePlanId: BillingPlanId
   hasWorkspace: boolean
   isWorkspaceLoading: boolean
+  launchMode: boolean
   onPurchase: (method: "pakasir" | "crypto") => void
 }) {
   const isCurrentPlan = activePlanId === plan.id
@@ -1002,7 +1018,9 @@ function PlanPurchaseCard({
 
       {isFreePlan ? (
         <div className="mt-4 rounded-2xl border border-dashed border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-          Plan ini aktif sebagai baseline. Upgrade ke Builder atau Studio untuk membuka fitur premium.
+          {launchMode
+            ? "Launch mode aktif, jadi fitur premium sedang dibuka sementara untuk semua user."
+            : "Plan ini aktif sebagai baseline. Upgrade ke Builder atau Studio untuk membuka fitur premium."}
         </div>
       ) : (
         <div className="mt-4 space-y-2">

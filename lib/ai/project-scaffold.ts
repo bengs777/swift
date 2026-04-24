@@ -13,6 +13,8 @@ type BuildProjectFilesOutput = {
   files: GeneratedFile[]
 }
 
+type BuildIntent = "dashboard" | "ecommerce" | "landing" | "portfolio" | "booking" | "crm" | "generic"
+
 export function buildProjectFiles({
   prompt,
   originalPrompt,
@@ -21,16 +23,24 @@ export function buildProjectFiles({
   promptSummary,
 }: BuildProjectFilesInput): BuildProjectFilesOutput {
   const name = sanitizeName(projectName || inferName(prompt) || "Swift Starter")
-  const isDashboard = /(dashboard|admin|analytics|report|metric|kpi|sidebar)/i.test(prompt)
-  const isCommerce = /(marketplace|e-?commerce|shop|store|product|cart|checkout|shopee)/i.test(prompt)
+  const intent = inferBuildIntent(prompt)
   const brief = promptSummary || prompt
 
   const baseFiles = buildStandardStructureFiles(name)
-  const domainOverrides = isDashboard
-    ? buildDashboardOverrideFiles(name, brief)
-    : isCommerce
-      ? buildCommerceOverrideFiles(name, brief)
-      : buildGenericOverrideFiles(name, brief)
+  const domainOverrides =
+    intent === "dashboard"
+      ? buildDashboardOverrideFiles(name, brief)
+      : intent === "ecommerce"
+        ? buildCommerceOverrideFiles(name, brief)
+        : intent === "landing"
+          ? buildLandingOverrideFiles(name, brief)
+          : intent === "portfolio"
+            ? buildPortfolioOverrideFiles(name, brief)
+            : intent === "booking"
+              ? buildBookingOverrideFiles(name, brief)
+              : intent === "crm"
+                ? buildCrmOverrideFiles(name, brief)
+                : buildGenericOverrideFiles(name, brief)
 
   const readme = buildReadmeFile({
     name,
@@ -42,7 +52,7 @@ export function buildProjectFiles({
   const files = mergeFilesByPath([...baseFiles, readme], domainOverrides)
 
   return {
-    message: `Generated a full-stack starter for ${name} using the standard Swift project tree.`,
+    message: `Generated a full-stack ${intent} starter for ${name} using the standard Swift project tree.`,
     files,
   }
 }
@@ -144,7 +154,7 @@ export async function GET() {
 export async function GET() {
   return NextResponse.json({
     models: [
-      { key: "default", label: "Default", provider: "openai", price: 2000 },
+      { key: "default", label: "Default", provider: "openai", price: 1000 },
     ],
   })
 }
@@ -244,7 +254,8 @@ export function useToast() {
       language: "ts",
       content: `export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
-  databaseUrl: process.env.DATABASE_URL || "",
+  tursoDatabaseUrl: process.env.TURSO_DATABASE_URL || "",
+  tursoAuthToken: process.env.TURSO_AUTH_TOKEN || "",
   openAiApiKey: process.env.OPENAI_API_KEY || "",
 }
 `,
@@ -274,7 +285,8 @@ export const appStore: AppState = {
       language: "ts",
       content: `export const AI_CONFIG = {
   provider: "openai",
-  model: process.env.OPENAI_DEFAULT_MODEL || "gpt-4o-mini",
+  model: process.env.OPENAI_DEFAULT_MODEL || "qwen/qwen3-coder:free",
+  baseUrl: process.env.OPENAI_API_URL || "https://openrouter.ai/api/v1",
   timeoutMs: Number(process.env.AI_TIMEOUT_MS || 60000),
 }
 `,
@@ -308,11 +320,12 @@ export function listProjects(): Project[] {
       language: "prisma",
       content: `generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = env("TURSO_DATABASE_URL")
 }
 
 model Project {
@@ -341,10 +354,12 @@ model Project {
     {
       path: ".env.example",
       language: "env",
-      content: `DATABASE_URL="file:./dev.db"
+      content: `TURSO_DATABASE_URL="libsql://your-turso-instance.turso.io"
+    TURSO_AUTH_TOKEN="replace-me"
 NEXTAUTH_SECRET="replace-me"
 OPENAI_API_KEY="replace-me"
-OPENAI_DEFAULT_MODEL="gpt-4o-mini"
+OPENAI_API_URL="https://openrouter.ai/api/v1"
+OPENAI_DEFAULT_MODEL="qwen/qwen3-coder:free"
 AI_PRIMARY_PROVIDER="openai"
 `,
     },
@@ -692,11 +707,12 @@ export async function listProducts(): Promise<Product[]> {
       language: "prisma",
       content: `generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = env("TURSO_DATABASE_URL")
 }
 
 model Product {
@@ -717,6 +733,329 @@ model Order {
   totalAmount  Int
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+`,
+    },
+  ]
+}
+
+function buildLandingOverrideFiles(name: string, prompt: string): GeneratedFile[] {
+  const safeName = serializeForCode(name)
+  const safePrompt = serializeForCode(escapeInlineText(prompt))
+
+  return [
+    {
+      path: "app/page.tsx",
+      language: "tsx",
+      content: `const features = [
+  "Conversion-focused hero with strong value proposition",
+  "Social proof and trust indicators",
+  "Clear call-to-action for demo or signup",
+]
+
+export default function HomePage() {
+  const projectName = ${safeName}
+  const buildBrief = ${safePrompt}
+
+  return (
+    <main className="min-h-screen bg-white text-slate-900">
+      <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
+        <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+          <p className="text-lg font-semibold">{projectName}</p>
+          <a href="#cta" className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white">Start Free</a>
+        </nav>
+      </header>
+      <section className="mx-auto max-w-6xl px-4 py-16 md:py-24">
+        <h1 className="max-w-3xl text-4xl font-bold tracking-tight md:text-6xl">Build trust fast and convert visitors into customers.</h1>
+        <p className="mt-5 max-w-2xl text-base text-slate-600 md:text-lg">Build brief: {buildBrief}</p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <a id="cta" href="#" className="rounded-full bg-slate-900 px-5 py-3 text-sm font-medium text-white">Book a Demo</a>
+          <a href="#" className="rounded-full border border-slate-300 px-5 py-3 text-sm font-medium text-slate-900">See Pricing</a>
+        </div>
+      </section>
+      <section className="mx-auto grid max-w-6xl gap-4 px-4 pb-16 md:grid-cols-3">
+        {features.map((item) => (
+          <article key={item} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <h2 className="text-base font-semibold">{item}</h2>
+          </article>
+        ))}
+      </section>
+    </main>
+  )
+}
+`,
+    },
+    {
+      path: "app/api/leads/route.ts",
+      language: "ts",
+      content: `import { NextRequest, NextResponse } from "next/server"
+
+export async function POST(request: NextRequest) {
+  const payload = await request.json()
+  const email = payload?.email
+
+  if (!email) {
+    return NextResponse.json({ error: "email is required" }, { status: 400 })
+  }
+
+  return NextResponse.json({ ok: true, message: "Lead captured", email })
+}
+`,
+    },
+    {
+      path: "lib/services/lead.service.ts",
+      language: "ts",
+      content: `type LeadInput = { email: string; source?: string }
+
+export async function captureLead(input: LeadInput) {
+  return {
+    id: "lead-" + Date.now(),
+    email: input.email,
+    source: input.source || "landing-page",
+  }
+}
+`,
+    },
+  ]
+}
+
+function buildPortfolioOverrideFiles(name: string, prompt: string): GeneratedFile[] {
+  const safeName = serializeForCode(name)
+  const safePrompt = serializeForCode(escapeInlineText(prompt))
+
+  return [
+    {
+      path: "app/page.tsx",
+      language: "tsx",
+      content: `const projects = [
+  { title: "Identity System Revamp", result: "+37% conversion" },
+  { title: "SaaS Onboarding UX", result: "-42% drop-off" },
+  { title: "B2B Dashboard Redesign", result: "+28 NPS" },
+]
+
+export default function HomePage() {
+  const projectName = ${safeName}
+  const buildBrief = ${safePrompt}
+
+  return (
+    <main className="min-h-screen bg-stone-50 text-stone-900">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-6">
+        <p className="font-semibold">{projectName}</p>
+        <a href="#contact" className="rounded-full bg-stone-900 px-4 py-2 text-sm text-white">Hire Me</a>
+      </header>
+      <section className="mx-auto max-w-6xl px-4 py-12 md:py-16">
+        <p className="text-sm uppercase tracking-[0.2em] text-stone-500">Personal Brand Site</p>
+        <h1 className="mt-4 max-w-3xl text-4xl font-bold md:text-6xl">Designing digital products that grow real business metrics.</h1>
+        <p className="mt-5 max-w-2xl text-stone-600">Build brief: {buildBrief}</p>
+      </section>
+      <section className="mx-auto grid max-w-6xl gap-4 px-4 pb-16 md:grid-cols-3">
+        {projects.map((project) => (
+          <article key={project.title} className="rounded-2xl border border-stone-200 bg-white p-5">
+            <h2 className="font-semibold">{project.title}</h2>
+            <p className="mt-2 text-sm text-stone-600">{project.result}</p>
+          </article>
+        ))}
+      </section>
+      <footer id="contact" className="border-t border-stone-200 px-4 py-8 text-center text-sm text-stone-600">
+        Ready to collaborate? Contact via portfolio inquiry form.
+      </footer>
+    </main>
+  )
+}
+`,
+    },
+    {
+      path: "app/api/inquiry/route.ts",
+      language: "ts",
+      content: `import { NextRequest, NextResponse } from "next/server"
+
+export async function POST(request: NextRequest) {
+  const payload = await request.json()
+  if (!payload?.name || !payload?.email) {
+    return NextResponse.json({ error: "name and email are required" }, { status: 400 })
+  }
+
+  return NextResponse.json({ ok: true, status: "received" })
+}
+`,
+    },
+  ]
+}
+
+function buildBookingOverrideFiles(name: string, prompt: string): GeneratedFile[] {
+  const safeName = serializeForCode(name)
+  const safePrompt = serializeForCode(escapeInlineText(prompt))
+
+  return [
+    {
+      path: "app/page.tsx",
+      language: "tsx",
+      content: `const slots = [
+  { id: "slot-1", label: "Mon 09:00", available: true },
+  { id: "slot-2", label: "Mon 11:00", available: false },
+  { id: "slot-3", label: "Tue 14:00", available: true },
+]
+
+export default function HomePage() {
+  const projectName = ${safeName}
+  const buildBrief = ${safePrompt}
+  const availableSlots = slots.filter((slot) => slot.available)
+
+  return (
+    <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100 md:px-6">
+      <header className="mx-auto flex w-full max-w-5xl items-center justify-between">
+        <h1 className="text-2xl font-semibold">{projectName}</h1>
+        <a href="#book" className="rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950">Reserve Now</a>
+      </header>
+      <section className="mx-auto mt-8 w-full max-w-5xl rounded-2xl border border-white/10 bg-white/5 p-6">
+        <h2 className="text-2xl font-semibold">Reservation System</h2>
+        <p className="mt-2 text-sm text-slate-300">Build brief: {buildBrief}</p>
+      </section>
+      <section id="book" className="mx-auto mt-6 w-full max-w-5xl rounded-2xl border border-white/10 bg-white/5 p-6">
+        <h3 className="text-lg font-medium">Available Slots</h3>
+        {availableSlots.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-400">No slots available yet. Please check again later.</p>
+        ) : (
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+            {availableSlots.map((slot) => (
+              <li key={slot.id} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">{slot.label}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </main>
+  )
+}
+`,
+    },
+    {
+      path: "app/api/bookings/route.ts",
+      language: "ts",
+      content: `import { NextRequest, NextResponse } from "next/server"
+import { createBooking } from "@/lib/services/booking.service"
+
+export async function POST(request: NextRequest) {
+  const payload = await request.json()
+
+  if (!payload?.customerName || !payload?.slotId) {
+    return NextResponse.json({ error: "customerName and slotId are required" }, { status: 400 })
+  }
+
+  const booking = await createBooking(payload.customerName, payload.slotId)
+  return NextResponse.json({ ok: true, booking })
+}
+`,
+    },
+    {
+      path: "lib/services/booking.service.ts",
+      language: "ts",
+      content: `export async function createBooking(customerName: string, slotId: string) {
+  return {
+    id: "book-" + Date.now(),
+    customerName,
+    slotId,
+    status: "confirmed",
+  }
+}
+`,
+    },
+  ]
+}
+
+function buildCrmOverrideFiles(name: string, prompt: string): GeneratedFile[] {
+  const safeName = serializeForCode(name)
+  const safePrompt = serializeForCode(escapeInlineText(prompt))
+
+  return [
+    {
+      path: "app/page.tsx",
+      language: "tsx",
+      content: `const leads = [
+  { id: "lead-1", name: "Ari Putra", stage: "Qualified", value: "Rp 45.000.000" },
+  { id: "lead-2", name: "Bina Group", stage: "Proposal", value: "Rp 120.000.000" },
+  { id: "lead-3", name: "Citra Labs", stage: "Negotiation", value: "Rp 80.000.000" },
+]
+
+export default function HomePage() {
+  const projectName = ${safeName}
+  const buildBrief = ${safePrompt}
+
+  return (
+    <main className="min-h-screen bg-zinc-950 px-4 py-10 text-zinc-100 md:px-6">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">{projectName}</h1>
+          <p className="mt-1 text-sm text-zinc-400">Internal CRM dashboard</p>
+        </div>
+        <a href="#" className="rounded-full bg-emerald-400 px-4 py-2 text-sm font-medium text-zinc-950">Add New Lead</a>
+      </header>
+      <section className="mx-auto mt-8 w-full max-w-6xl rounded-2xl border border-white/10 bg-white/5 p-6">
+        <p className="text-sm text-zinc-300">Build brief: {buildBrief}</p>
+      </section>
+      <section className="mx-auto mt-6 w-full max-w-6xl rounded-2xl border border-white/10 bg-white/5 p-6">
+        <h2 className="text-lg font-medium">Lead Pipeline</h2>
+        {leads.length === 0 ? (
+          <p className="mt-4 text-sm text-zinc-400">No leads yet. Start by adding your first opportunity.</p>
+        ) : (
+          <ul className="mt-4 space-y-3">
+            {leads.map((lead) => (
+              <li key={lead.id} className="flex flex-col gap-1 rounded-xl border border-white/10 bg-white/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="font-medium">{lead.name}</p>
+                <p className="text-sm text-zinc-300">{lead.stage}</p>
+                <p className="text-sm text-emerald-300">{lead.value}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </main>
+  )
+}
+`,
+    },
+    {
+      path: "app/api/leads/route.ts",
+      language: "ts",
+      content: `import { NextRequest, NextResponse } from "next/server"
+import { listLeads, createLead } from "@/lib/services/crm.service"
+
+export async function GET() {
+  const leads = await listLeads()
+  return NextResponse.json({ leads })
+}
+
+export async function POST(request: NextRequest) {
+  const payload = await request.json()
+  if (!payload?.name) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 })
+  }
+
+  const lead = await createLead(payload.name, payload.stage || "New")
+  return NextResponse.json({ ok: true, lead })
+}
+`,
+    },
+    {
+      path: "lib/services/crm.service.ts",
+      language: "ts",
+      content: `type Lead = {
+  id: string
+  name: string
+  stage: string
+}
+
+const leadStore: Lead[] = [
+  { id: "lead-1", name: "Acme Corp", stage: "Qualified" },
+]
+
+export async function listLeads(): Promise<Lead[]> {
+  return leadStore
+}
+
+export async function createLead(name: string, stage: string): Promise<Lead> {
+  const lead = { id: "lead-" + Date.now(), name, stage }
+  leadStore.push(lead)
+  return lead
 }
 `,
     },
@@ -790,6 +1129,36 @@ function mergeFilesByPath(base: GeneratedFile[], overrides: GeneratedFile[]) {
 
 function normalizePath(path: string) {
   return path.replace(/\\/g, "/").replace(/^\.\//, "")
+}
+
+function inferBuildIntent(prompt: string): BuildIntent {
+  const normalized = prompt.toLowerCase()
+
+  if (/(dashboard|admin|analytics|report|metric|kpi|sidebar)/i.test(normalized)) {
+    return "dashboard"
+  }
+
+  if (/(marketplace|e-?commerce|shop|store|product|cart|checkout|shopee)/i.test(normalized)) {
+    return "ecommerce"
+  }
+
+  if (/(landing page|landing|hero|marketing|cta|conversion)/i.test(normalized)) {
+    return "landing"
+  }
+
+  if (/(portfolio|personal brand|resume|case study)/i.test(normalized)) {
+    return "portfolio"
+  }
+
+  if (/(booking|reservation|appointment|schedule)/i.test(normalized)) {
+    return "booking"
+  }
+
+  if (/(crm|lead|pipeline|sales ops|internal tool)/i.test(normalized)) {
+    return "crm"
+  }
+
+  return "generic"
 }
 
 function inferName(prompt: string) {

@@ -6,6 +6,29 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 
+type DomainInstructionRecord = {
+  type: string
+  name?: string
+  value: string
+}
+
+type DomainInstructions = {
+  note?: string
+  records?: DomainInstructionRecord[]
+  verifyDetails?: Record<string, unknown> | null
+}
+
+type DomainSaveResponse = {
+  instructions?: DomainInstructions | null
+  error?: string
+}
+
+type DomainVerifyResponse = {
+  verified?: boolean
+  details?: Record<string, unknown> | null
+  error?: string
+}
+
 interface DomainDialogProps {
   projectId: string
   currentDomain?: string | null
@@ -19,7 +42,7 @@ export default function DomainDialog({ projectId, currentDomain, onDomainSaved }
   const [saving, setSaving] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [verified, setVerified] = useState<boolean | null>(null)
-  const [instructions, setInstructions] = useState<any>(null)
+  const [instructions, setInstructions] = useState<DomainInstructions | null>(null)
 
   useEffect(() => {
     setDomain(currentDomain || "")
@@ -40,7 +63,7 @@ export default function DomainDialog({ projectId, currentDomain, onDomainSaved }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ domain: trimmed }),
       })
-      const data = await res.json()
+      const data = (await res.json()) as DomainSaveResponse
       if (!res.ok) {
         throw new Error(data?.error || "Gagal menyimpan domain")
       }
@@ -71,12 +94,12 @@ export default function DomainDialog({ projectId, currentDomain, onDomainSaved }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ domain: trimmed }),
       })
-      const data = await res.json()
+      const data = (await res.json()) as DomainVerifyResponse
       if (!res.ok) throw new Error(data?.error || "Gagal verifikasi")
 
       setVerified(Boolean(data.verified))
       toast({ title: data.verified ? "Domain terverifikasi" : "Belum terverifikasi", description: data.verified ? `Domain ${trimmed} sudah mengarah ke Vercel.` : "DNS belum terpropagasi atau pengaturan belum benar." })
-      if (data.details) setInstructions((prev: any) => ({ ...prev, verifyDetails: data.details }))
+      if (data.details) setInstructions((prev) => ({ ...(prev ?? {}), verifyDetails: data.details }))
       if (data.verified) onDomainSaved?.(trimmed)
     } catch (err) {
       console.error(err)
@@ -95,7 +118,7 @@ export default function DomainDialog({ projectId, currentDomain, onDomainSaved }
           {instructions.note && <div className="mb-2">{instructions.note}</div>}
           {Array.isArray(instructions.records) && (
             <ul className="list-disc ml-5">
-              {instructions.records.map((r: any, idx: number) => (
+              {instructions.records.map((r, idx: number) => (
                 <li key={idx}>
                   <strong>{r.type}</strong> {r.name ? `${r.name} → ` : ""}{r.value}
                 </li>
@@ -121,7 +144,7 @@ export default function DomainDialog({ projectId, currentDomain, onDomainSaved }
         <DialogHeader>
           <DialogTitle>Custom Domain</DialogTitle>
           <DialogDescription>
-            Ganti domain pribadi untuk project ini. Setelah menyimpan, ikuti instruksi DNS dan klik "Check DNS" untuk memverifikasi.
+            Ganti domain pribadi untuk project ini. Setelah menyimpan, ikuti instruksi DNS dan klik Check DNS untuk memverifikasi.
           </DialogDescription>
         </DialogHeader>
 

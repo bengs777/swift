@@ -8,11 +8,13 @@ import { env } from "@/lib/env"
 import { buildProjectFiles } from "@/lib/ai/project-scaffold"
 import { extractGeneratedFilesFromProviderMessage, mergeGeneratedFiles } from "@/lib/ai/provider-output"
 import { enhancePromptWithAgentRouter } from "@/lib/ai/prompt-enhancer"
+import { appendPreviewContextToPrompt, buildPreviewContextPacket, buildPreviewInspectionPrompt, normalizePreviewContext } from "@/lib/ai/preview-context"
+import { appendAIContextToPrompt, buildAIContextSnapshot } from "@/lib/ai/context-engine"
 import { autoRepairFullStackFiles, validateFullStackFiles } from "@/lib/ai/fullstack-validator"
 import { ProviderRouter } from "@/lib/ai/provider-router"
 import { analyzePromptIntent, buildClarifyingPrompt } from "@/lib/ai/prompt-intent"
 import type { PromptLanguage } from "@/lib/ai/prompt-templates"
-import type { GeneratedFile, PromptAttachment } from "@/lib/types"
+import type { GeneratedFile, ProjectMemoryData, PromptAttachment } from "@/lib/types"
 import { z } from "zod"
 import ts from "typescript"
 import { orchestrateGeneration } from "@/lib/ai/orchestrator"
@@ -54,6 +56,7 @@ const GenerateSchema = z.object({
   selectedModel: z.string().min(1),
   promptLanguage: z.enum(["id", "en"]).optional().default("id"),
   idempotencyKey: z.string().optional(),
+  previewContext: z.unknown().optional(),
   attachments: z.array(
     z.object({
       id: z.string().min(1).max(100),
@@ -98,7 +101,7 @@ function getFriendlyProviderErrorMessage(errorMessage: string, provider: string)
     normalized.includes("temporarily rate-limited") ||
     normalized.includes("rate-limited upstream")
   ) {
-    return `Kuota/rate limit ${providerName} sedang penuh. Saldo kamu sudah otomatis direfund. Coba lagi beberapa menit, ganti model non-free, atau pakai provider key sendiri (BYOK) agar limit lebih longgar.`
+    return `Kuota/rate limit ${providerName} sedang penuh. Saldo kamu sudah otomatis direfund. Coba lagi beberapa menit, ganti model lain yang masih aktif, atau pakai provider key sendiri (BYOK) agar limit lebih longgar.`
   }
 
   if (
@@ -106,7 +109,7 @@ function getFriendlyProviderErrorMessage(errorMessage: string, provider: string)
     normalized.includes("model not found") ||
     normalized.includes("unknown model")
   ) {
-    return `Model yang dipilih saat ini tidak tersedia di ${providerName}. Saldo kamu sudah otomatis direfund. Silakan pilih model lain atau gunakan mode auto routing (openrouter/auto).`
+    return `Model yang dipilih saat ini tidak tersedia di ${providerName}. Saldo kamu sudah otomatis direfund. Silakan pilih model lain yang masih aktif.`
   }
 
   if (normalized.includes("timed out")) {
@@ -132,6 +135,7 @@ export async function POST(request: NextRequest) {
     const promptLanguage = body.promptLanguage as PromptLanguage
     const projectId = body.projectId.trim()
     const idempotencyKey = body.idempotencyKey?.trim()
+    const previewContextFromClient = normalizePreviewContext(body.previewContext)
     const attachments = normalizeAttachments(body.attachments)
     const promptWithAttachments = appendAttachmentsToPrompt(prompt, attachments)
 
@@ -202,6 +206,71 @@ export async function POST(request: NextRequest) {
 
     const existingFiles = toGeneratedFiles(project.files || [])
     const promptIntent = analyzePromptIntent(prompt, promptLanguage)
+    const previewContext =
+      previewContextFromClient ||
+      (promptIntent.mode === "inspect"
+        ? buildPreviewContextPacket({
+            source: "api",
+            projectId: project.id,
+            projectName: project.name,
+            templateId: project.templateId || null,
+            activeTab: "preview",
+            viewport: "desktop",
+            currentVersion: project.history.length || null,
+            activeFile: existingFiles[0] || null,
+            files: existingFiles,
+            previewFiles: existingFiles,
+            previewError: null,
+            notes: ["Preview context was reconstructed by the API because the client did not send one."],
+          })
+        : null)
+    const activeFileForContext = previewContext?.activeFilePath
+      ? existingFiles.find((file) => file.path === previewContext.activeFilePath) || null
+      : existingFiles[0] || null
+    const aiContext = buildAIContextSnapshot({
+      projectId: project.id,
+      projectName: project.name,
+      activeFile: activeFileForContext,
+      files: existingFiles,
+      projectMemory: project.memoryJson || null,
+      selectedText: null,
+      diagnostics: previewContext?.previewError
+        ? [
+            {
+              source: "preview",
+              message: previewContext.previewError.message,
+              filePath: previewContext.previewError.filename || previewContext.activeFilePath || null,
+              line: previewContext.previewError.lineno ?? null,
+              column: previewContext.previewError.colno ?? null,
+              severity: "error",
+              code: null,
+            },
+          ]
+        : [],
+      gitDiff: null,
+      terminalOutput: null,
+    })
+    const shouldIncludeAIContext = promptIntent.mode === "inspect" || promptIntent.mode === "build"
+    const shouldIncludePreviewContext = promptIntent.mode === "inspect" || promptIntent.mode === "build"
+    const promptWithAIContext = shouldIncludeAIContext ? appendAIContextToPrompt(promptWithAttachments, aiContext) : promptWithAttachments
+    const promptWithPreviewContext =
+      shouldIncludePreviewContext && previewContext && promptIntent.mode === "inspect"
+        ? buildPreviewInspectionPrompt(promptWithAIContext, previewContext)
+        : shouldIncludePreviewContext && previewContext
+          ? appendPreviewContextToPrompt(promptWithAIContext, previewContext)
+          : promptWithAIContext
+
+    if (promptWithPreviewContext.length > MAX_PROMPT_LENGTH) {
+      return NextResponse.json(
+        {
+          error: `Prompt exceeds maximum length of ${MAX_PROMPT_LENGTH} characters after preview context was added.`,
+          code: "PROMPT_TOO_LONG",
+          maxLength: MAX_PROMPT_LENGTH,
+          currentLength: promptWithPreviewContext.length,
+        },
+        { status: 400 }
+      )
+    }
 
     enforceUserRateLimit(user.id)
 
@@ -210,6 +279,12 @@ export async function POST(request: NextRequest) {
     if (!modelConfig) {
       return NextResponse.json({ error: "Selected model is not available" }, { status: 403 })
     }
+
+    const promptEnhancement = await enhancePromptWithAgentRouter({
+      prompt: promptWithPreviewContext,
+      modelName: modelConfig.modelName,
+    })
+    const projectMemoryJson = mergeProjectMemoryJson(project.memoryJson || null, promptEnhancement.projectMemory)
 
     const canFallbackToOpenAi =
       modelConfig.provider === "agentrouter" &&
@@ -224,17 +299,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "OpenAI provider is not configured" }, { status: 503 })
     }
 
-    if (promptIntent.mode === "chat") {
+    if (promptIntent.mode === "chat" || promptIntent.mode === "inspect") {
       const chatResult = await ProviderRouter.generate({
         provider: modelConfig.provider,
         modelName: modelConfig.modelName,
-        prompt: promptWithAttachments,
-        mode: "chat",
+        prompt: promptIntent.mode === "inspect" ? promptWithPreviewContext : promptWithAttachments,
+        mode: promptIntent.mode === "inspect" ? "inspect" : "chat",
         promptLanguage,
       })
 
       return NextResponse.json({
-        mode: "chat",
+        mode: promptIntent.mode === "inspect" ? "inspect" : "chat",
         message: chatResult.message,
         files: [],
         previewFiles: null,
@@ -315,23 +390,15 @@ export async function POST(request: NextRequest) {
       modelConfig.id,
       modelConfig.key,
       modelConfig.provider,
-      promptWithAttachments,
+      promptWithPreviewContext,
       modelConfig.price
     )
 
     try {
-      const promptEnhancement =
-        modelConfig.provider === "agentrouter"
-          ? await enhancePromptWithAgentRouter({
-              prompt: promptWithAttachments,
-              modelName: modelConfig.modelName,
-            })
-          : {
-              prompt: promptWithAttachments,
-              summary: prompt,
-              sourcesUsed: [],
-              usedEnhancement: false,
-            }
+      const promptEnhancement = await enhancePromptWithAgentRouter({
+        prompt: promptWithPreviewContext,
+        modelName: modelConfig.modelName,
+      })
 
       const basePrompt = promptEnhancement.prompt
       const effectivePrompt =
@@ -353,13 +420,12 @@ export async function POST(request: NextRequest) {
         idempotencyKey,
       })
 
-      if ((orchestration as any).alreadyExists) {
-        const existing = orchestration as any
+      if (orchestration.alreadyExists) {
         return NextResponse.json({
           message: 'Idempotent response: returning previous generation result',
-          files: existing.files,
-          code: existing.files?.[0]?.content || '',
-          historyId: existing.historyId,
+          files: orchestration.files,
+          code: orchestration.files?.[0]?.content || '',
+          historyId: orchestration.historyId,
           usage: {
             cost: 0,
             remainingBalance: user.balance,
@@ -367,7 +433,7 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      const result = (orchestration as any).providerResult
+      const result = orchestration.providerResult
       const providerParsed = extractGeneratedFilesFromProviderMessage(result.message)
       const scaffold = buildProjectFiles({
         prompt: fullStackPrompt,
@@ -467,9 +533,10 @@ export async function POST(request: NextRequest) {
       // so the in-browser sandbox preview won't try to render server-only code.
       const previewFiles = sanitizeFilesForPreview(generatedFiles)
 
-      const historyId = await saveProjectGeneration(project.id, promptWithAttachments, generatedFiles, {
+      const historyId = await saveProjectGeneration(project.id, promptWithPreviewContext, generatedFiles, {
         idempotencyKey,
         cost: modelConfig.price,
+        projectMemoryJson,
       })
 
       await BillingService.markCompleted(usageLog.id, {
@@ -485,6 +552,7 @@ export async function POST(request: NextRequest) {
         message: responseMessage,
         files: generatedFiles,
         previewFiles,
+        plan: promptEnhancement.plan,
         code: generatedFiles[0]?.content || "",
         historyId,
         usage: {
@@ -500,7 +568,7 @@ export async function POST(request: NextRequest) {
       const isStrictFullStackError = error instanceof StrictFullStackValidationError
       const errorMessage = error instanceof Error ? error.message : "AI request failed"
       const scaffoldFallback = buildProjectFiles({
-        prompt: promptWithAttachments,
+        prompt: promptWithPreviewContext,
         projectName: project.name,
       }).files
       const fallbackFiles = isStrictFullStackError
@@ -522,9 +590,10 @@ export async function POST(request: NextRequest) {
         errorMessage
       )
 
-      const historyId = await saveProjectGeneration(project.id, promptWithAttachments, fallbackFiles, {
+      const historyId = await saveProjectGeneration(project.id, promptWithPreviewContext, fallbackFiles, {
         idempotencyKey,
         cost: 0,
+        projectMemoryJson,
       })
 
       const previewFiles = sanitizeFilesForPreview(fallbackFiles)
@@ -537,6 +606,7 @@ export async function POST(request: NextRequest) {
             : friendlyMessage,
         files: fallbackFiles,
         previewFiles,
+        plan: promptEnhancement.plan,
         code: fallbackFiles[0]?.content || "",
         historyId,
         usage: {
@@ -674,6 +744,20 @@ function repairCommonObjectLiteralMistakes(input: string) {
   return out
 }
 
+function repairCommonJsxAttributeStrings(input: string) {
+  let out = String(input)
+
+  out = out.replace(
+    /([A-Za-z_$][\w:-]*)=\{\s*'([\s\S]*?\$\{[\s\S]*?\}[\s\S]*?)'\s*\}/g,
+    (_full, attributeName: string, attributeValue: string) => {
+      const normalizedValue = attributeValue.replace(/\\\$\{/g, "${")
+      return `${attributeName}={\`${normalizedValue}\`}`
+    }
+  )
+
+  return out
+}
+
 // Replace inline array data blocks that are clearly malformed with a safe
 // preview-friendly version. For example, if a model generated a `const stats = [ ... ]`
 // block with broken punctuation, this will extract any `label` values and
@@ -774,11 +858,12 @@ function buildPreviewExecutableCandidates(content: string, filePath: string) {
     candidates.add(normalized)
   }
 
-  const repaired = repairCommonObjectLiteralMistakes(original)
-  const arraySanitized = sanitizeInlineArrays(original)
+  const jsxRepaired = repairCommonJsxAttributeStrings(original)
+  const repaired = repairCommonObjectLiteralMistakes(jsxRepaired)
+  const arraySanitized = sanitizeInlineArrays(jsxRepaired)
   const repairedArraySanitized = repairCommonObjectLiteralMistakes(arraySanitized)
   const arrayRepaired = sanitizeInlineArrays(repaired)
-  const clientSafe = hasClientSafeRewriteMarkers(original) ? makeClientSafeContent(original) : ""
+  const clientSafe = hasClientSafeRewriteMarkers(jsxRepaired) ? makeClientSafeContent(jsxRepaired) : ""
   const clientSafeRepaired = clientSafe ? repairCommonObjectLiteralMistakes(clientSafe) : ""
   const clientSafeArraySanitized = clientSafe ? sanitizeInlineArrays(clientSafe) : ""
   const clientSafeArrayRepaired = clientSafeArraySanitized ? repairCommonObjectLiteralMistakes(clientSafeArraySanitized) : ""
@@ -800,7 +885,7 @@ function buildPreviewExecutableCandidates(content: string, filePath: string) {
 }
 
 function makeClientSafeContent(content: string) {
-  let s = String(content)
+  let s = repairCommonJsxAttributeStrings(String(content))
   const previewMockObject = `({
     id: "preview",
     name: "Preview item",
@@ -975,8 +1060,14 @@ function appendAttachmentsToPrompt(prompt: string, attachments: PromptAttachment
 function enforceFullStackRequirement(prompt: string) {
   return [
     prompt,
+    "Core role: You are the core builder engine for this AI website platform.",
+    "Convert short prompts into complete, premium, deployable web apps. Infer missing details with best-practice defaults.",
+    "Auto-detect product intent and apply matching defaults: dashboard = SaaS admin dashboard, ecommerce = online store with cart + checkout, landing page = marketing page, portfolio = personal brand site, booking = reservation system, crm = internal business tool.",
     "Hard requirement: Generate FULL-STACK Next.js app output, not frontend-only.",
     "Always include meaningful frontend UI + backend API route(s) + data model/service layer when applicable.",
+    "Default stack: Next.js + TypeScript + Tailwind + shadcn/ui (unless user explicitly asks otherwise).",
+    "Always include: responsive design, clean navigation, clear CTA, loading states, empty states, and usable mobile layout.",
+    "Prioritize usefulness, polish, modern UI quality, conversion-focused UX, and production-ready structure over mockups.",
     "If this prompt is about an existing project, patch the existing files first, preserve working structure, and add new files only when needed.",
     "Keep changes coherent and iterative. Prefer the smallest useful edit set that moves the project forward.",
     "Return ONLY valid JSON object with files array.",
@@ -1155,14 +1246,19 @@ function truncateText(value: string, limit: number) {
     return value
   }
 
-  return `${value.slice(0, limit)}\n/* ...truncated for context... */`
+  const headLength = Math.max(1, Math.floor(limit * 0.65))
+  const tailLength = Math.max(1, limit - headLength)
+  const head = value.slice(0, headLength).trimEnd()
+  const tail = value.slice(-tailLength).trimStart()
+
+  return `${head}\n/* ...truncated ${value.length - (headLength + tailLength)} chars for context... */\n${tail}`
 }
 
 async function saveProjectGeneration(
   projectId: string,
   prompt: string,
   files: GeneratedFile[],
-  opts?: { idempotencyKey?: string | null; cost?: number | null }
+  opts?: { idempotencyKey?: string | null; cost?: number | null; projectMemoryJson?: string | null }
 ) {
   const history = await prisma.$transaction(async (tx) => {
     const createdHistory = await tx.generationHistory.create({
@@ -1192,7 +1288,10 @@ async function saveProjectGeneration(
 
     await tx.project.update({
       where: { id: projectId },
-      data: { prompt },
+      data: {
+        prompt,
+        ...(opts?.projectMemoryJson ? { memoryJson: opts.projectMemoryJson } : {}),
+      },
     })
 
     return createdHistory
@@ -1226,4 +1325,55 @@ function buildStrictFailSafeMessage(details: {
     "",
     "Saldo request ini sudah otomatis direfund. Coba prompt yang lebih spesifik atau ganti model.",
   ].join("\n")
+}
+
+function mergeProjectMemoryJson(existingValue: string | null | undefined, nextValue: ProjectMemoryData | null | undefined) {
+  const existing = parseProjectMemoryJson(existingValue)
+  if (!existing && !nextValue) {
+    return null
+  }
+
+  const notes = Array.from(
+    new Set([
+      ...(existing?.notes || []),
+      ...(nextValue?.notes || []),
+    ].map((item) => item.trim()).filter(Boolean))
+  )
+
+  const merged: ProjectMemoryData = {
+    framework: nextValue?.framework?.trim() || existing?.framework || null,
+    uiStyle: nextValue?.uiStyle?.trim() || existing?.uiStyle || null,
+    database: nextValue?.database?.trim() || existing?.database || null,
+    auth: nextValue?.auth?.trim() || existing?.auth || null,
+    folderRules: nextValue?.folderRules?.trim() || existing?.folderRules || null,
+    naming: nextValue?.naming?.trim() || existing?.naming || null,
+    notes: notes.length > 0 ? notes : undefined,
+  }
+
+  return JSON.stringify(merged)
+}
+
+function parseProjectMemoryJson(value: string | null | undefined): ProjectMemoryData | null {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<ProjectMemoryData> | null
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null
+    }
+
+    return {
+      framework: typeof parsed.framework === "string" ? parsed.framework : null,
+      uiStyle: typeof parsed.uiStyle === "string" ? parsed.uiStyle : null,
+      database: typeof parsed.database === "string" ? parsed.database : null,
+      auth: typeof parsed.auth === "string" ? parsed.auth : null,
+      folderRules: typeof parsed.folderRules === "string" ? parsed.folderRules : null,
+      naming: typeof parsed.naming === "string" ? parsed.naming : null,
+      notes: Array.isArray(parsed.notes) ? parsed.notes.filter((note): note is string => typeof note === "string" && note.trim().length > 0) : undefined,
+    }
+  } catch {
+    return null
+  }
 }

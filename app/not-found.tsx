@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 export default function NotFound() {
   return (
     <main className="flex min-h-[70vh] items-center justify-center px-6 py-16">
@@ -12,12 +14,12 @@ export default function NotFound() {
           The page you are looking for does not exist or has moved.
         </p>
         <div className="mt-6 flex justify-center">
-          <a
+          <Link
             href="/"
             className="inline-flex items-center justify-center rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90"
           >
             Back to home
-          </a>
+          </Link>
         </div>
       </section>
     </main>

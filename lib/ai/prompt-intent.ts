@@ -1,6 +1,6 @@
 import type { PromptLanguage } from "@/lib/ai/prompt-templates"
 
-export type PromptIntentMode = "chat" | "build"
+export type PromptIntentMode = "chat" | "build" | "inspect"
 
 export type PromptIntentConfidence = "low" | "medium" | "high"
 
@@ -85,6 +85,12 @@ const targetSignals = [
   "toko",
   "ecommerce",
   "portfolio",
+  "booking",
+  "reservation",
+  "appointment",
+  "crm",
+  "lead",
+  "pipeline",
   "blog",
   "admin",
   "profile",
@@ -112,10 +118,17 @@ const detailSignals = [
   "checkout",
   "api",
   "data",
+  "backend",
+  "booking",
+  "reservation",
+  "crm",
+  "pipeline",
+  "lead",
   "role",
   "admin",
   "mobile",
   "responsive",
+  "service",
 ]
 
 const genericBuildSignals = [
@@ -178,6 +191,42 @@ const patchSignals = [
   "perbaiki bug",
 ]
 
+const inspectSignals = [
+  "inspect",
+  "investigasi",
+  "debug",
+  "diagnose",
+  "diagnosis",
+  "review kode",
+  "review code",
+  "cek kode",
+  "cek code",
+  "analisa kode",
+  "analisis kode",
+  "debug kode",
+  "debug code",
+  "kode ini",
+  "code ini",
+  "isi preview",
+  "isi kode",
+  "isi code",
+  "trace",
+  "traceback",
+  "stack trace",
+  "browser preview",
+  "preview error",
+  "error di preview",
+  "preview tidak jalan",
+  "tidak bisa running di preview",
+  "gagal di preview",
+  "blank preview",
+  "white screen",
+  "runtime error",
+  "hydration",
+  "not rendering",
+  "not running",
+]
+
 type PromptIntentCopy = {
   label: string
   summary: string
@@ -200,6 +249,7 @@ const PROMPT_INTENT_COPY: Record<
     empty: PromptIntentCopy
     greeting: PromptIntentCopy
     chat: PromptIntentCopy
+    inspect: PromptIntentCopy
     clarify: PromptIntentCopy
     build: PromptIntentCopy
     defaultChat: PromptIntentCopy
@@ -225,10 +275,16 @@ const PROMPT_INTENT_COPY: Record<
       nextStep: "Kalau ingin generate web, tambahkan kata seperti buat, bikin, build, atau generate.",
       example: "Contoh jawaban: JWT dipakai untuk autentikasi berbasis token.",
     },
+    inspect: {
+      label: "Mode inspect",
+      summary: "AI akan membaca evidence preview dan menjawab diagnosis teknis, bukan obrolan umum.",
+      nextStep: "Tambahkan error browser, file aktif, dan konteks preview supaya root cause lebih cepat ditemukan.",
+      example: "Contoh jawaban: root cause ada di JSX yang tidak valid di file app/page.tsx.",
+    },
     clarify: {
       label: "Akan minta klarifikasi",
       summary: "AI kemungkinan akan tanya 1-2 detail penting dulu supaya hasilnya lebih tepat.",
-      nextStep: "Tambahkan target user, fitur utama, halaman, dan gaya UI agar prompt lebih efisien.",
+      nextStep: "Tambahkan Tujuan, Fitur wajib, UI / visual, Data / backend, Batasan, dan Preview agar prompt lebih efisien.",
       example: "Contoh: Buat web toko online dengan login, cart, checkout, dan halaman admin.",
     },
     build: {
@@ -247,7 +303,7 @@ const PROMPT_INTENT_COPY: Record<
       intro: "Pengguna ingin membangun aplikasi web, tetapi brief masih terlalu singkat.",
       originalPrompt: "Permintaan asli:",
       instruction: "Ajukan maksimal 2 pertanyaan klarifikasi yang singkat dan tepat.",
-      focus: "Fokus pada tujuan, fitur/halaman utama, dan gaya visual jika perlu.",
+      focus: "Fokus pada Tujuan dan Fitur wajib terlebih dulu, lalu tanyakan UI / visual atau Data / backend jika masih diperlukan.",
       noCode: "Jangan tulis kode, daftar file, atau JSON dulu.",
       keepShort: "Jaga jawaban tetap singkat, natural, dan membantu.",
     },
@@ -271,10 +327,16 @@ const PROMPT_INTENT_COPY: Record<
       nextStep: "If you want to generate a web app, add words like build, create, or generate.",
       example: "Example reply: JWT is used for token-based authentication.",
     },
+    inspect: {
+      label: "Inspect mode",
+      summary: "AI will read preview evidence and answer with a technical diagnosis instead of a general chat reply.",
+      nextStep: "Add the browser error, active file, and preview context so the root cause is easier to find.",
+      example: "Example reply: the root cause is invalid JSX in app/page.tsx.",
+    },
     clarify: {
       label: "Will ask clarifying questions",
       summary: "AI will probably ask 1-2 key details first so the result is more accurate.",
-      nextStep: "Add target users, core features, pages, and UI style to make the prompt more efficient.",
+      nextStep: "Add Goal, Must-have features, UI / visual, Data / backend, Constraints, and Preview to make the prompt more efficient.",
       example: "Example: Build an e-commerce site with login, cart, checkout, and an admin page.",
     },
     build: {
@@ -293,7 +355,7 @@ const PROMPT_INTENT_COPY: Record<
       intro: "The user wants to build a web app, but the brief is still too short.",
       originalPrompt: "Original request:",
       instruction: "Ask at most 2 concise clarifying questions that capture the missing essentials.",
-      focus: "Focus on the goal, key features/pages, and visual style if needed.",
+      focus: "Focus on Goal and Must-have features first, then ask about UI / visual or Data / backend if needed.",
       noCode: "Do not write code, file lists, or JSON yet.",
       keepShort: "Keep the response short, human, and helpful.",
     },
@@ -329,6 +391,18 @@ export function analyzePromptIntent(prompt: string, language: PromptLanguage = "
   const hasDetail = detailSignals.some((signal) => normalized.includes(signal))
   const hasWorkspaceSignal = workspaceSignals.some((signal) => normalized.includes(signal))
   const hasPatchSignal = patchSignals.some((signal) => normalized.includes(signal))
+  const hasInspectSignal = inspectSignals.some((signal) => normalized.includes(signal))
+  const hasPreviewFailureSignal =
+    normalized.includes("preview") &&
+    (normalized.includes("error") ||
+      normalized.includes("gagal") ||
+      normalized.includes("tidak jalan") ||
+      normalized.includes("tidak bisa") ||
+      normalized.includes("broken") ||
+      normalized.includes("crash") ||
+      normalized.includes("stack") ||
+      normalized.includes("runtime") ||
+      normalized.includes("hydration"))
   const hasBuildKeyword =
     normalized.includes("full stack") ||
     normalized.includes("fullstack") ||
@@ -336,6 +410,26 @@ export function analyzePromptIntent(prompt: string, language: PromptLanguage = "
     normalized.includes("starter") ||
     normalized.includes("boilerplate")
   const hasGenericBuildSignal = genericBuildSignals.some((signal) => normalized.includes(signal))
+  if (hasInspectSignal || hasPreviewFailureSignal) {
+    return {
+      mode: "inspect",
+      needsClarification: false,
+      confidence: hasPreviewFailureSignal ? "high" : "medium",
+      ...copy.inspect,
+      summary:
+        language === "id"
+          ? "Prompt ini meminta diagnosis preview, jadi AI akan membaca evidence browser dan menjelaskan root cause paling mungkin."
+          : "This prompt asks for a preview diagnosis, so AI will read browser evidence and explain the most likely root cause.",
+      nextStep:
+        language === "id"
+          ? "Tambahkan file aktif, error browser, dan konteks preview jika ingin diagnosis yang lebih presisi."
+          : "Add the active file, browser error, and preview context if you want a more precise diagnosis.",
+      example:
+        language === "id"
+          ? "Contoh: Kenapa halaman template blank saat dibuka di preview?"
+          : "Example: Why is the template page blank when opened in preview?",
+    }
+  }
   const forceGenerateBuild = (hasAction && hasGenericBuildSignal && !hasTarget && !hasBuildKeyword) || hasWorkspaceSignal
 
   if (hasChatSignal && !hasAction && !hasBuildKeyword && !hasPatchSignal && !hasWorkspaceSignal) {

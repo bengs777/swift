@@ -2,19 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { ModelConfigService } from "@/lib/services/model-config.service"
 import { env } from "@/lib/env"
-
-const toLabel = (value: string) => {
-  const cleanedValue = value.replace(/:free\b/gi, "").trim()
-
-  if (value.includes("/")) {
-    return cleanedValue
-  }
-
-  return cleanedValue
-    .split(/[-_]/g)
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(" ")
-}
+import { formatModelLabel, getModelDisplayMeta } from "@/lib/ai/models"
 
 export async function GET() {
   const session = await auth()
@@ -35,15 +23,20 @@ export async function GET() {
     }
 
     return false
+  }).sort((left, right) => {
+    const leftRank = getModelDisplayMeta(left.modelName || left.key).rank ?? Number.POSITIVE_INFINITY
+    const rightRank = getModelDisplayMeta(right.modelName || right.key).rank ?? Number.POSITIVE_INFINITY
+    return leftRank - rightRank
   })
 
   return NextResponse.json({
     models: availableModels.map((model) => ({
       ...model,
+      ...getModelDisplayMeta(model.modelName || model.key),
       label:
         model.key === "openai-fallback"
-          ? `OpenAI Fallback (${toLabel(model.modelName)})`
-          : toLabel(model.modelName),
+          ? `${env.openAiApiUrl.includes("openrouter.ai") ? "OpenRouter" : "OpenAI"} Fallback (${formatModelLabel(model.modelName)})`
+          : formatModelLabel(model.modelName || model.key),
     })),
   })
 }

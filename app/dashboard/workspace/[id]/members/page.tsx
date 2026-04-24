@@ -32,10 +32,6 @@ export default function MembersPage() {
   const [role, setRole] = useState("member")
   const [isAdding, setIsAdding] = useState(false)
 
-  useEffect(() => {
-    fetchMembers()
-  }, [params.id])
-
   const fetchMembers = async () => {
     try {
       setLoading(true)
@@ -52,6 +48,10 @@ export default function MembersPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    void fetchMembers()
+  }, [params.id])
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault()

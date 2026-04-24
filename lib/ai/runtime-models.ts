@@ -1,8 +1,15 @@
 import { env } from "@/lib/env"
 import type { ModelOption } from "@/lib/types"
-import { DEFAULT_MODEL_OPTIONS } from "@/lib/ai/models"
+import {
+  DEFAULT_MODEL_OPTIONS,
+  LEGACY_AGENTROUTER_MODEL_OPTIONS,
+  OPENROUTER_MODEL_KEYS,
+  formatModelLabel,
+  getModelDisplayMeta,
+  getModelPrice,
+  isFreeModel,
+} from "@/lib/ai/models"
 
-const DEFAULT_PRICE = 2000
 const OPENAI_FALLBACK_KEY = "openai-fallback"
 
 const dedupeList = (items: string[]) => {
@@ -23,16 +30,6 @@ const dedupeList = (items: string[]) => {
   return result
 }
 
-const toLabel = (model: string) => {
-  if (model.includes("/")) {
-    return model
-  }
-  return model
-    .split(/[-_]/g)
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(" ")
-}
-
 const ensureDefaultFirst = (models: string[], defaultModel?: string) => {
   if (!defaultModel) {
     return models
@@ -51,64 +48,68 @@ const ensureDefaultFirst = (models: string[], defaultModel?: string) => {
   return [normalized, ...models.filter((model) => model !== normalized)]
 }
 
+const buildModelOption = (model: string, provider: ModelOption["provider"]): ModelOption => {
+  const displayMeta = getModelDisplayMeta(model)
+
+  return {
+    key: model,
+    label: displayMeta.label,
+    provider,
+    modelName: model,
+    price: getModelPrice(model),
+    isActive: true,
+    rank: displayMeta.rank,
+    description: displayMeta.description,
+    note: displayMeta.note,
+  }
+}
+
 export function getRuntimeModelOptions(): ModelOption[] {
-  const agentRouterCombined = dedupeList([
-    ...env.agentRouterModels,
-    ...env.agentRouterFallbackModels,
-  ])
+  const agentRouterCombined = dedupeList([...env.agentRouterModels, ...env.agentRouterFallbackModels])
 
   const agentRouterOptions: ModelOption[] =
     agentRouterCombined.length === 0
-      ? DEFAULT_MODEL_OPTIONS
-      : ensureDefaultFirst(agentRouterCombined, env.agentRouterDefaultModel).map(
-          (model): ModelOption => ({
-            key: model,
-            label: toLabel(model),
-            provider: "agentrouter",
-            modelName: model,
-            price: DEFAULT_PRICE,
-            isActive: true,
-          })
+      ? LEGACY_AGENTROUTER_MODEL_OPTIONS
+      : ensureDefaultFirst(agentRouterCombined, env.agentRouterDefaultModel).map((model) =>
+          buildModelOption(model, "agentrouter")
         )
 
-  const openAiCombined = dedupeList([
-    env.openAiDefaultModel,
-    ...env.openAiModels,
-    env.openAiFallbackModel,
-    ...(env.openAiApiUrl.includes("openrouter.ai") ? ["openrouter/auto"] : []),
-  ])
+  const openAiDefaultModel =
+    OPENROUTER_MODEL_KEYS.includes(env.openAiDefaultModel.trim())
+      ? env.openAiDefaultModel.trim()
+      : DEFAULT_MODEL_OPTIONS[0].key
+
+  const openAiCombined = env.openAiApiUrl.includes("openrouter.ai")
+    ? ensureDefaultFirst([...OPENROUTER_MODEL_KEYS], openAiDefaultModel)
+    : dedupeList([
+        env.openAiDefaultModel,
+        ...env.openAiModels,
+        env.openAiFallbackModel,
+      ]).filter((model) => isFreeModel(model))
 
   const openAiOptions: ModelOption[] = ensureDefaultFirst(
     openAiCombined,
-    env.openAiDefaultModel
-  ).map(
-    (model): ModelOption => ({
-      key: model,
-      label: toLabel(model),
-      provider: "openai",
-      modelName: model,
-      price: DEFAULT_PRICE,
-      isActive: true,
-    })
-  )
+    openAiDefaultModel
+  ).map((model) => buildModelOption(model, "openai"))
 
   const options: ModelOption[] =
     env.aiPrimaryProvider === "openai"
-      ? (openAiOptions.length > 0 ? openAiOptions : agentRouterOptions)
-      : agentRouterOptions
+      ? (openAiOptions.length > 0 ? openAiOptions : DEFAULT_MODEL_OPTIONS)
+      : (agentRouterOptions.length > 0 ? agentRouterOptions : LEGACY_AGENTROUTER_MODEL_OPTIONS)
 
-  const fallbackModel = env.openAiFallbackModel.trim()
+  const fallbackModel = isFreeModel(env.openAiFallbackModel) ? env.openAiFallbackModel.trim() : ""
   if (
     env.aiPrimaryProvider !== "openai" &&
     env.aiFallbackProvider === "openai" &&
     fallbackModel
   ) {
     options.push({
+      ...getModelDisplayMeta(fallbackModel),
       key: OPENAI_FALLBACK_KEY,
-      label: `OpenAI Fallback (${toLabel(fallbackModel)})`,
+      label: `${env.openAiApiUrl.includes("openrouter.ai") ? "OpenRouter" : "OpenAI"} Fallback (${formatModelLabel(fallbackModel)})`,
       provider: "openai",
       modelName: fallbackModel,
-      price: DEFAULT_PRICE,
+      price: getModelPrice(fallbackModel),
       isActive: true,
     })
   }

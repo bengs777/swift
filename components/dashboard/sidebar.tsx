@@ -2,11 +2,10 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useSession, signOut } from "next-auth/react"
+import { signOut, useSession } from "next-auth/react"
 import {
   BookOpen,
   FolderOpen,
-  HelpCircle,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -35,6 +34,13 @@ const navigation = [
 export function DashboardSidebar() {
   const pathname = usePathname()
   const { data: session } = useSession()
+  const displayName = session?.user?.name || session?.user?.email?.split("@")[0] || "User"
+
+  const avatarInitial = displayName.charAt(0).toUpperCase() || "U"
+
+  const handleSignOut = async () => {
+    await signOut({ redirectTo: "/" })
+  }
 
   return (
     <aside className="flex w-full flex-col border-b border-sidebar-border bg-sidebar/90 backdrop-blur-xl lg:sticky lg:top-0 lg:h-screen lg:w-80 lg:border-b-0 lg:border-r">
@@ -88,18 +94,6 @@ export function DashboardSidebar() {
       </nav>
 
       <div className="border-t border-sidebar-border p-3">
-        <div className="rounded-2xl border border-sidebar-border/70 bg-sidebar-accent/15 p-3">
-          <Link
-            href="/docs"
-            className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-          >
-            <HelpCircle className="h-4 w-4" />
-            Help & Docs
-          </Link>
-        </div>
-      </div>
-
-      <div className="border-t border-sidebar-border p-3">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -107,11 +101,11 @@ export function DashboardSidebar() {
               className="w-full justify-start gap-3 rounded-2xl border border-sidebar-border/80 px-3 py-3 text-left hover:bg-sidebar-accent/40"
             >
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent text-sm font-medium text-sidebar-accent-foreground">
-                {session?.user?.name?.charAt(0).toUpperCase() || "U"}
+                {avatarInitial}
               </div>
               <div className="flex-1 text-left">
                 <div className="text-sm font-medium text-sidebar-foreground">
-                  {session?.user?.name || "User"}
+                  {displayName}
                 </div>
                 <div className="text-xs text-sidebar-foreground/70">
                   {session?.user?.email || "user@example.com"}
@@ -120,14 +114,22 @@ export function DashboardSidebar() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56 rounded-2xl">
-            <DropdownMenuItem className="rounded-xl">
-              <Settings className="mr-2 h-4 w-4" />
-              Settings
+            <DropdownMenuItem asChild className="rounded-xl">
+              <Link href="/dashboard/settings">
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild className="rounded-xl">
+              <Link href="/docs">
+                <BookOpen className="mr-2 h-4 w-4" />
+                Help & Docs
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="rounded-xl"
-              onClick={() => signOut({ redirectTo: "/" })}
+              onClick={handleSignOut}
             >
               <LogOut className="mr-2 h-4 w-4" />
               Sign out

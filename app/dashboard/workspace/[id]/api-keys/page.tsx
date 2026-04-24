@@ -27,10 +27,6 @@ export default function ApiKeysPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [newKey, setNewKey] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchApiKeys()
-  }, [params.id])
-
   const fetchApiKeys = async () => {
     try {
       setLoading(true)
@@ -49,6 +45,10 @@ export default function ApiKeysPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    void fetchApiKeys()
+  }, [params.id])
 
   const handleCreateKey = async (e: React.FormEvent) => {
     e.preventDefault()

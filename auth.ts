@@ -1,37 +1,48 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
-import Credentials from "next-auth/providers/credentials"
+import type { Session } from "next-auth"
+import type { JWT } from "next-auth/jwt"
 import { prisma } from "@/lib/db/client"
 import { UserService } from "@/lib/services/user.service"
 import { env } from "@/lib/env"
 
-// In-memory cache untuk mengurangi database queries
 const userIdCache = new Map<string, string | null>()
+
+type AuthToken = JWT & {
+  id?: string | null
+  email?: string | null
+}
+
+type AuthSession = Session & {
+  user: NonNullable<Session["user"]> & {
+    id?: string | null
+  }
+}
 
 async function resolveDatabaseUserId(email?: string | null) {
   if (!email) return null
 
-  // Check cache first
-  if (userIdCache.has(email)) {
-    return userIdCache.get(email) ?? null
+  const normalizedEmail = email.trim().toLowerCase()
+
+  if (userIdCache.has(normalizedEmail)) {
+    return userIdCache.get(normalizedEmail) ?? null
   }
 
   try {
     const dbUser = await prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
       select: { id: true },
     })
 
     const userId = dbUser?.id ?? null
-    userIdCache.set(email, userId)
+    userIdCache.set(normalizedEmail, userId)
     return userId
   } catch (error) {
-    console.error("[v0] Database error resolving user ID:", error)
+    console.error("[auth] Database error resolving user ID:", error)
     return null
   }
 }
 
-// Clear cache periodically (setiap 5 menit)
 setInterval(() => {
   userIdCache.clear()
 }, 5 * 60 * 1000)
@@ -45,85 +56,57 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientSecret: env.googleClientSecret,
       allowDangerousEmailAccountLinking: true,
     }),
-    Credentials({
-      name: "Credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (
-          !credentials?.email ||
-          !credentials?.password ||
-          typeof credentials.email !== "string" ||
-          typeof credentials.password !== "string"
-        ) {
-          return null
-        }
-
-        const email = credentials.email
-
-        const user = await UserService.createUserWithWorkspaceIfMissing(
-          email,
-          email.split("@")[0],
-          null
-        )
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name || email.split("@")[0],
-        }
-      },
-    }),
   ],
   pages: {
     signIn: "/login",
     error: "/auth/error",
   },
   callbacks: {
-    async jwt({ token, user, account }) {
-      if (user) {
-        token.email = user.email
+    async jwt({ token, user }) {
+      const currentToken = token as AuthToken
+
+      if (user?.email) {
+        currentToken.email = user.email
       }
 
       const databaseUserId = await resolveDatabaseUserId(
-        user?.email ?? token.email
+        user?.email ?? currentToken.email
       )
 
       if (databaseUserId) {
-        token.id = databaseUserId
+        currentToken.id = databaseUserId
       } else if (user?.id) {
-        token.id = user.id
+        currentToken.id = user.id
       }
 
-      return token
+      return currentToken
     },
     async session({ session, token }) {
       if (session.user) {
-        const userEmail = session.user.email ?? token.email
+        const currentToken = token as AuthToken
+        const currentSession = session as AuthSession
+        const sessionUser = currentSession.user
+        const userEmail = sessionUser.email ?? currentToken.email
 
         if (userEmail) {
           await UserService.grantMonthlyFreeCreditsIfNeeded(userEmail)
         }
 
-        const databaseUserId = await resolveDatabaseUserId(
-          userEmail
-        )
+        const databaseUserId = await resolveDatabaseUserId(userEmail)
 
-        session.user.id = (databaseUserId ?? token.id) as string
-        session.user.email = token.email as string
+        sessionUser.id = databaseUserId ?? currentToken.id ?? undefined
+        sessionUser.email = currentToken.email ?? sessionUser.email ?? null
       }
+
       return session
     },
     async redirect({ url, baseUrl }) {
       if (url.startsWith("/")) return `${baseUrl}${url}`
-      else if (url.startsWith(baseUrl)) return url
+      if (url.startsWith(baseUrl)) return url
       return baseUrl
     },
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account }) {
       try {
-        // Only handle Google OAuth
         if (account?.provider === "google" && user.email) {
           await UserService.createUserWithWorkspaceIfMissing(
             user.email,
@@ -131,11 +114,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             user.image || null
           )
 
-          // Clear cache untuk email ini agar data terbaru ter-fetch
-          userIdCache.delete(user.email)
+          userIdCache.delete(user.email.trim().toLowerCase())
         }
       } catch (error) {
-        console.error("[v0] Auth signIn sync warning:", error)
+        console.error("[auth] Auth signIn sync warning:", error)
       }
 
       return true
@@ -143,7 +125,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   events: {
     async signIn({ user, account }) {
-      console.log("[v0] User signed in:", user.email, "via", account?.provider)
+      console.log("[auth] User signed in:", user.email, "via", account?.provider)
     },
   },
 })

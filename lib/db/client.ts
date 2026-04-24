@@ -5,24 +5,21 @@ import { env } from '@/lib/env'
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
-const shouldUseLibSqlAdapter = /^(libsql|libsqls|https?):\/\//i.test(
-  env.databaseUrl
-)
+if (!env.tursoDatabaseUrl) {
+  throw new Error('TURSO_DATABASE_URL is required')
+}
 
-const prismaAdapter =
-  env.databaseUrl && shouldUseLibSqlAdapter
-    ? new PrismaLibSQL(
-        createClient({
-          url: env.databaseUrl,
-          authToken: env.tursoAuthToken || undefined,
-        })
-      )
-    : undefined
+const prismaAdapter = new PrismaLibSQL(
+  createClient({
+    url: env.tursoDatabaseUrl,
+    authToken: env.tursoAuthToken || undefined,
+  })
+)
 
 export const prisma =
   globalForPrisma.prisma ||
   new PrismaClient({
-    ...(prismaAdapter ? { adapter: prismaAdapter } : {}),
+    adapter: prismaAdapter,
     log: ['warn', 'error'],
   })
 

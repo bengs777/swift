@@ -23,6 +23,7 @@ import {
 import DomainDialog from "./domain-dialog"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { getBillingPlan } from "@/lib/billing/plans"
+import { OPEN_ALL_FEATURES_DURING_LAUNCH } from "@/lib/launch"
 
 interface EditorHeaderProps {
   projectId: string
@@ -52,7 +53,9 @@ export function EditorHeader({
   subscriptionStatus = "active",
 }: EditorHeaderProps) {
   const billingPlan = getBillingPlan(subscriptionPlan)
-  const canUsePremiumFeatures = billingPlan.id !== "free" && subscriptionStatus === "active"
+  const canUsePremiumFeatures =
+    OPEN_ALL_FEATURES_DURING_LAUNCH || (billingPlan.id !== "free" && subscriptionStatus === "active")
+  const isLaunchMode = OPEN_ALL_FEATURES_DURING_LAUNCH
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4">
@@ -72,6 +75,11 @@ export function EditorHeader({
           <Badge variant={canUsePremiumFeatures ? "secondary" : "outline"} className="text-xs">
             {billingPlan.name}
           </Badge>
+          {isLaunchMode && (
+            <Badge variant="secondary" className="text-xs">
+              Launch mode
+            </Badge>
+          )}
         </div>
       </div>
 

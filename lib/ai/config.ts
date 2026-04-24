@@ -1,11 +1,11 @@
 import { env } from '@/lib/env'
 
-// AI Configuration for BLUESMINDS integration
+// AI Configuration for OpenRouter/OpenAI-compatible integration
 
 export const AI_CONFIG = {
-  provider: "agentrouter",
-  model: env.agentRouterDefaultModel || "glm-4.6",
-  baseUrl: env.agentRouterApiUrl,
+  provider: "openai",
+  model: env.openAiDefaultModel || "qwen/qwen3-coder:free",
+  baseUrl: env.openAiApiUrl,
   temperature: 0.7,
   maxTokens: 8000,
   topP: 0.95,

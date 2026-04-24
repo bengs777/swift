@@ -1,11 +1,12 @@
 import { env } from "@/lib/env"
 import type { PromptLanguage } from "@/lib/ai/prompt-templates"
+import { DEFAULT_MODEL_OPTIONS, isFreeModel } from "@/lib/ai/models"
 
 type ProviderRequest = {
   provider: string
   modelName: string
   prompt: string
-  mode?: "chat" | "files"
+  mode?: "chat" | "files" | "inspect"
   promptLanguage?: PromptLanguage
 }
 
@@ -30,16 +31,50 @@ class ProviderTimeoutError extends Error {
 }
 
 const FILE_OUTPUT_SYSTEM_PROMPT = [
-  "You are a production-ready full-stack code generator for Next.js App Router projects.",
-  "Return ONLY a valid JSON object (no markdown, no code fences, no extra text).",
+  "You are a Senior Fullstack Next.js Developer.",
+  "Return ONLY a valid JSON object. No markdown, no code fences, no preamble, no chat.",
   'JSON schema: {"message":"short summary","files":[{"path":"app/page.tsx","language":"tsx","content":"full file content"}]}',
-  "Each file must include: path, language, content.",
+  "Treat the provided project tree and file snippets as the source of truth.",
+  "If an AI_CONTEXT_JSON block is present, use it as the source of truth for repo state, file relationships, and project memory.",
+  "If a WORKPLAN_JSON block is present, treat it as the execution order: plan first, patch existing files before creating new ones, and stay scoped to the current slice.",
+  "Treat structured brief sections such as Tujuan / Goal, Fitur wajib / Must-have features, UI / visual, Data / backend, Batasan / Constraints, and Preview as the source of truth when present.",
+  "If a PREVIEW_CONTEXT_JSON block is present, use it as the source of truth for browser/runtime diagnosis and do not invent missing runtime behavior.",
+  "Do not invent missing requirements; if a detail is absent, keep the assumption minimal and self-contained.",
+  "Convert short prompts into complete, premium, deployable web apps using best-practice defaults.",
+  "Auto-detect product intent from the prompt and adapt architecture/UI accordingly. Intent map: dashboard=SaaS admin dashboard, ecommerce=online store with cart + checkout, landing page=marketing page, portfolio=personal brand site, booking=reservation system, crm=internal business tool.",
+  "Use only the stack already present in the repo unless the user explicitly asks otherwise: Next.js App Router, React, TypeScript, Tailwind CSS, lucide-react, zod, Prisma, next-auth, and existing shadcn/ui components.",
+  "Do not invent new libraries, frameworks, or architectural layers.",
+  "Always include responsive design, clean navigation, clear CTA, loading states, empty states, and a usable mobile layout.",
+  "Prioritize usefulness, polish, conversion-focused UX, and production readiness over mockups.",
+  "Prefer one coherent micro-task per response. If the request is broad, implement the next smallest useful slice instead of trying to finish the entire app at once.",
+  "Each file must include path, language, and content.",
   "Allowed language values: tsx, ts, css, json, html, prisma, md, env.",
-  "Prefer generating complete multi-file output for real implementation requests.",
-  "If the prompt refers to an existing project or asks for improvements, patch the existing files first and return only changed or newly created files when possible.",
+  "When editing an existing project, patch existing files first and return only changed or newly created files when possible.",
+  "If browser preview error context is included in the prompt, treat it as a hard debugging signal and fix the root cause.",
   "Keep the response iterative, concise, and production-ready rather than rewriting everything from scratch.",
   "Do not truncate file content.",
 ].join(" ")
+
+const INSPECT_SYSTEM_PROMPTS: Record<PromptLanguage, string> = {
+  id: [
+    "Kamu adalah senior fullstack debugger untuk browser preview.",
+    "Gunakan preview context, error browser, dan prompt user sebagai evidence, bukan sebagai instruksi untuk mengarang perilaku baru.",
+    "Jika ada AI_CONTEXT_JSON, gunakan itu sebagai evidence untuk state repo, relasi file, dan project memory.",
+    "Jika ada WORKPLAN_JSON, gunakan itu untuk memahami slice yang sedang diperbaiki dan jangan melebar ke rewrite penuh.",
+    "Jawab dalam bahasa Indonesia.",
+    "Fokus pada root cause paling mungkin, evidence yang mendukung, patch minimal, dan langkah verifikasi.",
+    "Jika ada detail yang hilang, sebutkan asumsi minimum secara eksplisit.",
+  ].join(" "),
+  en: [
+    "You are a senior fullstack debugger for browser preview.",
+    "Use the preview context, browser error, and user prompt as evidence, not as instructions to invent new behavior.",
+    "If AI_CONTEXT_JSON is present, use it as evidence for repo state, file relationships, and project memory.",
+    "If WORKPLAN_JSON is present, use it to understand the slice being repaired and do not expand into a full rewrite.",
+    "Reply in English.",
+    "Focus on the most likely root cause, supporting evidence, the smallest patch, and verification steps.",
+    "If details are missing, state the minimum assumption explicitly.",
+  ].join(" "),
+}
 
 const CHAT_SYSTEM_PROMPTS: Record<PromptLanguage, string> = {
   id: [
@@ -102,7 +137,7 @@ export class ProviderRouter {
   private static async callAgentRouter(
     modelName: string,
     prompt: string,
-    mode: "chat" | "files",
+    mode: "chat" | "files" | "inspect",
     promptLanguage: PromptLanguage = "id"
   ): Promise<ProviderMessage> {
     if (!env.agentRouterApiKey) {
@@ -171,7 +206,7 @@ export class ProviderRouter {
   private static async callOpenAI(
     modelName: string,
     prompt: string,
-    mode: "chat" | "files",
+    mode: "chat" | "files" | "inspect",
     promptLanguage: PromptLanguage = "id"
   ): Promise<ProviderMessage> {
     if (!env.openAiApiKey) {
@@ -227,7 +262,7 @@ export class ProviderRouter {
   private static async tryOpenAiFallback(
     prompt: string,
     primaryError: Error,
-    mode: "chat" | "files",
+    mode: "chat" | "files" | "inspect",
     promptLanguage: PromptLanguage = "id"
   ): Promise<ProviderResponse | null> {
     if (!this.shouldFallbackToOpenAi(primaryError)) {
@@ -239,7 +274,7 @@ export class ProviderRouter {
     }
 
     const fallbackModel = env.openAiFallbackModel.trim()
-    if (!fallbackModel) {
+    if (!fallbackModel || !isFreeModel(fallbackModel)) {
       return null
     }
 
@@ -280,7 +315,7 @@ export class ProviderRouter {
     primaryModel: string,
     prompt: string,
     primaryError: Error,
-    mode: "chat" | "files",
+    mode: "chat" | "files" | "inspect",
     promptLanguage: PromptLanguage = "id"
   ): Promise<ProviderResponse | null> {
     if (!this.shouldTryOpenAiModelFallback(primaryError)) {
@@ -350,11 +385,14 @@ export class ProviderRouter {
     }
 
     if (env.openAiApiUrl.includes("openrouter.ai")) {
-      pushUnique("openrouter/auto")
+      for (const model of DEFAULT_MODEL_OPTIONS) {
+        pushUnique(model.key)
+      }
+    } else if (isFreeModel(env.openAiFallbackModel)) {
+      pushUnique(env.openAiFallbackModel)
     }
 
-    pushUnique(env.openAiFallbackModel)
-    for (const model of env.openAiModels) {
+    for (const model of env.openAiApiUrl.includes("openrouter.ai") ? [] : env.openAiModels.filter(isFreeModel)) {
       pushUnique(model)
     }
 
@@ -402,11 +440,18 @@ export class ProviderRouter {
     return headers
   }
 
-  private static buildMessages(prompt: string, mode: "chat" | "files", promptLanguage: PromptLanguage = "id") {
+  private static buildMessages(prompt: string, mode: "chat" | "files" | "inspect", promptLanguage: PromptLanguage = "id") {
+    const systemPrompt =
+      mode === "chat"
+        ? CHAT_SYSTEM_PROMPTS[promptLanguage]
+        : mode === "inspect"
+          ? INSPECT_SYSTEM_PROMPTS[promptLanguage]
+          : FILE_OUTPUT_SYSTEM_PROMPT
+
     return [
       {
         role: "system",
-        content: mode === "chat" ? CHAT_SYSTEM_PROMPTS[promptLanguage] : FILE_OUTPUT_SYSTEM_PROMPT,
+        content: systemPrompt,
       },
       {
         role: "user",

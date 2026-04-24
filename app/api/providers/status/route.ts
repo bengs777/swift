@@ -236,7 +236,7 @@ async function checkSingleSource({
         responseTimeMs: elapsedMs,
         reason: isModelUnavailable ? "Selected model is not available on provider" : "Provider returned 404",
         action: isModelUnavailable
-          ? "Ganti model atau gunakan mode auto routing (openrouter/auto)."
+          ? "Ganti ke model lain yang masih aktif."
           : "Periksa endpoint provider atau coba model lain.",
       }
     }

@@ -43,6 +43,7 @@ export function NewProjectDialog({
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
   const [name, setName] = useState("")
+  const [prompt, setPrompt] = useState("")
   const [description, setDescription] = useState("")
   const [workspaceId, setWorkspaceId] = useState(defaultWorkspaceId ?? workspaces[0]?.id ?? "")
   const [error, setError] = useState("")
@@ -52,7 +53,7 @@ export function NewProjectDialog({
   }, [defaultWorkspaceId, workspaces])
 
   const handleCreate = async () => {
-    if (!name.trim() || !workspaceId) return
+    if (!name.trim() || !workspaceId || !prompt.trim()) return
 
     setIsCreating(true)
     setError("")
@@ -65,6 +66,7 @@ export function NewProjectDialog({
         },
         body: JSON.stringify({
           name: name.trim(),
+          prompt: prompt.trim(),
           description: description.trim() || undefined,
           workspaceId,
         }),
@@ -84,6 +86,7 @@ export function NewProjectDialog({
       }
 
       setName("")
+      setPrompt("")
       setDescription("")
       setWorkspaceId(defaultWorkspaceId ?? workspaces[0]?.id ?? "")
       onOpenChange(false)
@@ -105,6 +108,7 @@ export function NewProjectDialog({
           onOpenChange(nextOpen)
           if (!nextOpen) {
             setError("")
+            setPrompt("")
             setWorkspaceId(defaultWorkspaceId ?? workspaces[0]?.id ?? "")
           }
         }
@@ -144,6 +148,15 @@ export function NewProjectDialog({
             />
           </Field>
           <Field>
+            <FieldLabel>Prompt</FieldLabel>
+            <Textarea
+              placeholder="Build a modern dashboard with a sidebar, KPI cards, and a project list."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={4}
+            />
+          </Field>
+          <Field>
             <FieldLabel>Description (optional)</FieldLabel>
             <Textarea
               placeholder="A brief description of your project..."
@@ -171,7 +184,7 @@ export function NewProjectDialog({
           </Button>
           <Button
             onClick={handleCreate}
-            disabled={!name.trim() || !workspaceId || isCreating}
+            disabled={!name.trim() || !workspaceId || !prompt.trim() || isCreating}
           >
             {isCreating ? (
               <>

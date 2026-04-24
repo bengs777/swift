@@ -15,6 +15,9 @@ type BalanceTransactionInput = {
   providerReference?: string | null
   description?: string | null
   metadata?: string | null
+  grantId?: string | null
+  actorUserId?: string | null
+  counterpartyUserId?: string | null
 }
 
 type TopUpOrderInput = {
@@ -44,7 +47,7 @@ type TopUpFinalizationInput = {
 }
 
 export class BillingService {
-  private static async recordBalanceTransaction(
+  static async recordBalanceTransaction(
     tx: Prisma.TransactionClient,
     input: BalanceTransactionInput
   ) {
@@ -61,6 +64,9 @@ export class BillingService {
         providerReference: input.providerReference ?? undefined,
         description: input.description ?? undefined,
         metadata: input.metadata ?? undefined,
+        grantId: input.grantId ?? undefined,
+        actorUserId: input.actorUserId ?? undefined,
+        counterpartyUserId: input.counterpartyUserId ?? undefined,
       },
     })
   }
