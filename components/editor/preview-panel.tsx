@@ -133,7 +133,7 @@ export function PreviewPanel({
 
     const nextFiles = [...files, newFile]
     onReplaceFiles(nextFiles)
-    setActiveFile(nextFiles.length - 1)
+    onSelectFile?.(nextFiles.length - 1)
 
     const folders = getFolderSegments(filePath)
     if (folders.length > 0) {
