@@ -167,7 +167,7 @@ export function PreviewPanel({
     desktop: "100%",
   }
 
-  const fileTree = buildFileTree(files)
+// hapus, tidak dipakai
 
   const handleTabChange = (tab: "preview" | "code" | "explorer") => {
     if (!activeTabProp) {
