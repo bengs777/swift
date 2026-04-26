@@ -198,7 +198,9 @@ export function PreviewPanel({
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 text-xs text-destructive">
                 <AlertCircle className="h-3.5 w-3.5" />
-                <span className="truncate max-w-xs" title={previewError}>Error in preview</span>
+                <span className="truncate max-w-xs" title={previewError}>
+                  {previewError}
+                </span>
               </div>
               <button
                 onClick={() => window.alert(previewError)}
