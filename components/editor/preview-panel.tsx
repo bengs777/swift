@@ -150,11 +150,10 @@ export function PreviewPanel({
   }
 
   const handleDeleteActiveFile = () => {
-if (!onReplaceFiles || files.length === 0 || !files[activeFile]) return
+  if (!onReplaceFiles || files.length === 0 || !files[activeFileIndex]) return
 
-const fileToDelete = files[activeFile]
-
-const nextFiles = files.filter((_, index) => index !== activeFile)
+  const fileToDelete = files[activeFileIndex]
+  const nextFiles = files.filter((_, index) => index !== activeFileIndex)
     if (!shouldDelete) return
 
     const nextFiles = files.filter((_, index) => index !== activeFile)
