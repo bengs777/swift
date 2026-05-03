@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Swift - AI Web App Builder',
-  description: 'Build web applications with AI. Describe what you want, watch it come to life.',
+  title: 'Swift - Pembangun Web AI untuk Indonesia',
+  description: 'Bangun aplikasi web dengan AI. Jelaskan apa yang Anda inginkan, saksikan menjadi kenyataan.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -30,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="id" suppressHydrationWarning className="bg-background">
       <body className="font-sans antialiased">
         {children}
       </body>

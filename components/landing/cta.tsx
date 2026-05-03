@@ -5,43 +5,43 @@ import { ArrowRight, CheckCircle2, Layers3, Sparkles, WandSparkles } from "lucid
 
 export function CTA() {
   return (
-    <section className="border-t border-border py-20 sm:py-32">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6">
-        <div className="relative overflow-hidden rounded-[2rem] border border-border bg-card px-6 py-8 shadow-2xl shadow-black/5 sm:px-10 sm:py-10 lg:px-12 lg:py-12">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,oklch(0.985_0_0_/_0.7),transparent_26%),radial-gradient(circle_at_top_right,oklch(0.97_0_0_/_0.35),transparent_24%),radial-gradient(circle_at_bottom_right,oklch(0.985_0_0_/_0.45),transparent_28%)] dark:bg-[radial-gradient(circle_at_top_left,oklch(0.269_0_0_/_0.6),transparent_24%),radial-gradient(circle_at_top_right,oklch(0.205_0_0_/_0.38),transparent_22%),radial-gradient(circle_at_bottom_right,oklch(0.985_0_0_/_0.05),transparent_26%)]" />
-          <div className="relative grid items-center gap-10 lg:grid-cols-[1.05fr,0.95fr] lg:gap-12">
-            <div className="space-y-6">
-              <Badge className="gap-2 rounded-full border border-border bg-background/80 px-4 py-1.5 text-xs font-medium text-muted-foreground shadow-sm">
+    <section className="border-t border-border py-24 sm:py-36">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="relative overflow-hidden rounded-3xl border border-border bg-card px-6 py-8 shadow-2xl shadow-black/5 sm:px-10 sm:py-12 lg:px-14 lg:py-14">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,oklch(0.68_0.18_28_/_0.1),transparent_26%),radial-gradient(circle_at_top_right,oklch(0.65_0.16_25_/_0.08),transparent_24%),radial-gradient(circle_at_bottom_right,oklch(0.68_0.18_28_/_0.05),transparent_28%)] dark:bg-[radial-gradient(circle_at_top_left,oklch(0.68_0.18_28_/_0.15),transparent_24%),radial-gradient(circle_at_top_right,oklch(0.65_0.16_25_/_0.1),transparent_22%),radial-gradient(circle_at_bottom_right,oklch(0.7_0.18_25_/_0.08),transparent_26%)]" />
+          <div className="relative grid items-center gap-12 lg:grid-cols-[1.05fr,0.95fr] lg:gap-14">
+            <div className="space-y-8">
+              <Badge className="gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-2 text-xs font-medium text-primary">
                 <Sparkles className="h-3.5 w-3.5" />
-                Built for teams that ship fast
+                Dibangun untuk tim yang siap meluncurkan
               </Badge>
-              <div className="space-y-4">
-                <h2 className="text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl lg:text-5xl">
-                  Ready to move from idea to a polished product screen?
+              <div className="space-y-6">
+                <h2 className="text-balance text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-5xl">
+                  Siap berubah dari ide ke UI yang sempurna?
                 </h2>
-                <p className="max-w-xl text-pretty text-base leading-7 text-muted-foreground sm:text-lg">
-                  Swift gives you a concrete result pack, not a blank canvas. Start free, inspect the generated output, and keep iterating until it feels production-ready.
+                <p className="max-w-xl text-pretty text-lg leading-8 text-muted-foreground">
+                  Swift memberi Anda paket hasil konkret, bukan kanvas kosong. Mulai gratis, inspeksi output yang dihasilkan, dan terus ulangi hingga siap diproduksi.
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-4">
                 <Link href="/signup">
-                  <Button size="lg" className="gap-2 rounded-full px-5 shadow-sm">
-                    Start Building Free
-                    <ArrowRight className="h-4 w-4" />
+                  <Button size="lg" className="gap-2 rounded-full px-6 shadow-sm text-base font-semibold">
+                    Mulai Gratis
+                    <ArrowRight className="h-5 w-5" />
                   </Button>
                 </Link>
                 <Link href="/pricing">
-                  <Button variant="outline" size="lg" className="rounded-full px-5 shadow-sm">
-                    View Pricing
+                  <Button variant="outline" size="lg" className="rounded-full px-6 shadow-sm text-base font-semibold">
+                    Lihat Harga
                   </Button>
                 </Link>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                <MiniStat icon={WandSparkles} label="Prompt to UI" value="Minutes" />
-                <MiniStat icon={Layers3} label="Result pack" value="Sections + files" />
-                <MiniStat icon={CheckCircle2} label="Production feel" value="Built in" />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <MiniStat icon={WandSparkles} label="Prompt ke UI" value="Menit" />
+                <MiniStat icon={Layers3} label="Paket hasil" value="Bagian + file" />
+                <MiniStat icon={CheckCircle2} label="Siap produksi" value="Bawaan" />
               </div>
             </div>
 
@@ -68,22 +68,22 @@ export function CTA() {
                           Prompt
                         </div>
                         <p className="mt-2 text-sm leading-6 text-foreground">
-                          Create a sign up modal with validation and a success toast.
+                          Buat modal pendaftaran dengan validasi dan toast sukses.
                         </p>
                       </div>
 
                       <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-sm font-medium text-foreground">Generated outputs</span>
+                          <span className="text-sm font-medium text-foreground">Output yang dihasilkan</span>
                           <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
-                            4 blocks
+                            4 blok
                           </span>
                         </div>
                         <div className="mt-4 space-y-3">
-                          <PreviewRow title="Form layout" value="Fields, labels, helper text" />
-                          <PreviewRow title="Validation" value="Inline states and errors" />
-                          <PreviewRow title="Success" value="Toast and confirmation" />
-                          <PreviewRow title="Files" value="modal.tsx, toast.tsx" />
+                          <PreviewRow title="Layout form" value="Field, label, teks bantuan" />
+                          <PreviewRow title="Validasi" value="State dan error inline" />
+                          <PreviewRow title="Sukses" value="Toast dan konfirmasi" />
+                          <PreviewRow title="File" value="modal.tsx, toast.tsx" />
                         </div>
                       </div>
                     </div>
@@ -94,9 +94,9 @@ export function CTA() {
                       <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
                         <div>
                           <div className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
-                            Live preview
+                            Pratinjau langsung
                           </div>
-                          <div className="mt-1 text-sm font-semibold text-foreground">Modal with Form</div>
+                          <div className="mt-1 text-sm font-semibold text-foreground">Modal dengan Form</div>
                         </div>
                         <Badge variant="outline" className="rounded-full px-2.5 py-1 text-[11px]">
                           v1
@@ -114,12 +114,12 @@ export function CTA() {
 
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div className="rounded-2xl border border-border bg-background p-3">
-                            <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Files</div>
+                            <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">File</div>
                             <div className="mt-2 text-sm font-medium text-foreground">modal.tsx</div>
                           </div>
                           <div className="rounded-2xl border border-border bg-background p-3">
-                            <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">State</div>
-                            <div className="mt-2 text-sm font-medium text-foreground">Success ready</div>
+                            <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Kondisi</div>
+                            <div className="mt-2 text-sm font-medium text-foreground">Siap sukses</div>
                           </div>
                         </div>
                       </div>
