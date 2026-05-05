@@ -5,6 +5,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { SandboxPreview } from "./sandbox-preview"
 import { FileExplorer } from "./file-explorer"
+import { CodeExplorer } from "./code-explorer"
 import {
   Smartphone,
   Tablet,
@@ -327,12 +328,20 @@ export function PreviewPanel({
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-          <FileExplorer
-            files={files}
-            activeFileIndex={activeFileIndex}
-            onSelectFile={onSelectFile || (() => {})}
-            onReplaceFiles={onReplaceFiles}
-          />
+          {files.length > 0 ? (
+            <CodeExplorer
+              files={files}
+              activeFilePath={files[activeFileIndex]?.path}
+              onSelectFile={(filePath) => {
+                const index = files.findIndex((f) => f.path === filePath)
+                if (index >= 0 && onSelectFile) {
+                  onSelectFile(index)
+                }
+              }}
+            />
+          ) : (
+            <EmptyExplorer />
+          )}
         </div>
       )}
     </div>
@@ -358,6 +367,18 @@ function EmptyCode() {
       <h3 className="font-semibold text-foreground">No code generated</h3>
       <p className="mt-1 max-w-xs text-sm text-muted-foreground">
         Select a file from the explorer to edit it.
+      </p>
+    </div>
+  )
+}
+
+function EmptyExplorer() {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center p-8 text-center">
+      <Folder className="mb-4 h-12 w-12 text-muted-foreground" />
+      <h3 className="font-semibold text-foreground">No files yet</h3>
+      <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+        Generate code to see files in the explorer
       </p>
     </div>
   )
