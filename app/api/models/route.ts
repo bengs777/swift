@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { ModelConfigService } from "@/lib/services/model-config.service"
 import { env } from "@/lib/env"
 import { formatModelLabel, getModelDisplayMeta } from "@/lib/ai/models"
+import { v0Provider } from "@/lib/ai/providers/v0-provider"
 
 export async function GET() {
   const session = await auth()
@@ -21,6 +22,10 @@ export async function GET() {
     if (model.provider === "openai") {
       return Boolean(env.openAiApiKey)
     }
+    
+    if (model.provider === "v0") {
+      return v0Provider.isConfigured()
+    }
 
     return false
   }).sort((left, right) => {
@@ -29,14 +34,28 @@ export async function GET() {
     return leftRank - rightRank
   })
 
+  // Add V0 model if configured
+  const v0Models = v0Provider.isConfigured() ? [{
+    key: "v0-web-generator",
+    provider: "v0",
+    modelName: "v0-web-generator",
+    active: true,
+    label: "V0 Web Generator (5000/req)",
+    cost: 5000,
+    costUnit: "IDR",
+  }] : []
+
   return NextResponse.json({
-    models: availableModels.map((model) => ({
-      ...model,
-      ...getModelDisplayMeta(model.modelName || model.key),
-      label:
-        model.key === "openai-fallback"
-          ? `${env.openAiApiUrl.includes("openrouter.ai") ? "OpenRouter" : "OpenAI"} Fallback (${formatModelLabel(model.modelName)})`
-          : formatModelLabel(model.modelName || model.key),
-    })),
+    models: [
+      ...availableModels.map((model) => ({
+        ...model,
+        ...getModelDisplayMeta(model.modelName || model.key),
+        label:
+          model.key === "openai-fallback"
+            ? `${env.openAiApiUrl.includes("openrouter.ai") ? "OpenRouter" : "OpenAI"} Fallback (${formatModelLabel(model.modelName)})`
+            : formatModelLabel(model.modelName || model.key),
+      })),
+      ...v0Models,
+    ],
   })
 }
