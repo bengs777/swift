@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/db/client"
-import { ProviderRouter } from "@/lib/ai/provider-router"
+import { v0Provider } from "@/lib/ai/providers/v0-provider"
+import { orchestratorProvider } from "@/lib/ai/providers/orchestrator-provider"
 import {
   detectGenerationMode,
   extractFileContext,
-  parseGenerationResponse,
-  extractJSON,
-  buildCodeGenerationPrompt,
-  mergeFiles,
-  isValidJSON,
 } from "@/lib/ai/code-parser"
 import type { GeneratedFile, PromptAttachment } from "@/lib/types"
 import { z } from "zod"
@@ -34,11 +30,13 @@ const GenerateSmartSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    // Authenticate user
     const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    if (!session?.user?.email || !session?.user?.id) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
+
+    const userId = session.user.id as string
 
     // Validate request body
     const body = await request.json()
@@ -56,48 +54,89 @@ export async function POST(request: NextRequest) {
     }
 
     const { prompt, projectId, selectedModel, existingFiles = [] } = validation.data
+    const typedExistingFiles = existingFiles as GeneratedFile[]
+    
+    // Detect mode: CREATE or EXTEND based on existing files
+    const detectedMode = detectGenerationMode(typedExistingFiles)
 
-    // Verify project ownership
+    // Verify project exists
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      include: { user: true },
     })
 
-    if (!project || project.userId !== session.user.id) {
+    if (!project) {
       return NextResponse.json(
         {
           success: false,
-          error: "Project not found or unauthorized",
+          error: "Project not found",
           files: [],
         },
         { status: 404 }
       )
     }
 
-    // Detect mode: CREATE or EXTEND
-    const mode = detectGenerationMode(existingFiles)
+    // Verify user has access to the workspace
+    const workspaceMember = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: project.workspaceId,
+          userId,
+        },
+      },
+    })
+
+    if (!workspaceMember) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized - no access to this project",
+          files: [],
+        },
+        { status: 403 }
+      )
+    }
 
     // Build context if EXTEND mode
     let contextStr = ""
-    if (mode === "EXTEND") {
-      contextStr = extractFileContext(existingFiles)
+    if (detectedMode === "EXTEND") {
+      contextStr = extractFileContext(typedExistingFiles)
     }
 
-    // Build enhanced prompt with mode awareness
-    const systemPrompt = buildCodeGenerationPrompt(prompt, mode, contextStr)
-
-    // Get provider router and generate
-    const router = ProviderRouter.getInstance()
+    // Route to appropriate provider based on selectedModel
     let aiResponse: string
 
     try {
-      aiResponse = await router.generate({
-        systemPrompt,
-        userPrompt: prompt,
-        model: selectedModel,
-        temperature: 0.7,
-        maxTokens: 4000,
-      })
+      if (selectedModel.includes("v0")) {
+        const v0Result = await v0Provider.generate({
+          prompt,
+          mode: detectedMode as "CREATE" | "EXTEND",
+          existingFiles: typedExistingFiles,
+        })
+        if (!v0Result.success) {
+          throw new Error(v0Result.error || "V0 generation failed")
+        }
+        return NextResponse.json({
+          success: true,
+          files: v0Result.files,
+          mode: detectedMode,
+        })
+      } else if (selectedModel.includes("orchestrator") || selectedModel.includes("deepseek")) {
+        const orchestratorResult = await orchestratorProvider.generate({
+          prompt,
+          mode: detectedMode as "CREATE" | "EXTEND",
+          existingFiles: typedExistingFiles,
+        })
+        if (!orchestratorResult.success) {
+          throw new Error(orchestratorResult.error || "Orchestrator generation failed")
+        }
+        return NextResponse.json({
+          success: true,
+          files: orchestratorResult.files,
+          mode: detectedMode,
+        })
+      } else {
+        throw new Error("Unknown model provider")
+      }
     } catch (error) {
       console.error("[v0] AI generation error:", error)
       return NextResponse.json(
@@ -109,47 +148,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
-
-    // Extract and parse JSON from response
-    let jsonStr = aiResponse
-    if (!isValidJSON(aiResponse)) {
-      console.log("[v0] Attempting to extract JSON from response")
-      jsonStr = extractJSON(aiResponse)
-
-      if (!isValidJSON(jsonStr)) {
-        // If still not valid, try to fix it
-        jsonStr = attemptJSONRepair(jsonStr)
-      }
-    }
-
-    // Parse generation response
-    let generationResult
-    try {
-      generationResult = parseGenerationResponse(jsonStr)
-    } catch (parseError) {
-      console.error("[v0] JSON parse error:", parseError)
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Failed to parse AI output: ${parseError instanceof Error ? parseError.message : "Unknown error"}`,
-          files: [],
-        },
-        { status: 400 }
-      )
-    }
-
-    // Merge with existing files if EXTEND mode
-    let finalFiles = generationResult.files
-    if (mode === "EXTEND" && existingFiles.length > 0) {
-      finalFiles = mergeFiles(existingFiles, generationResult.files)
-    }
-
-    return NextResponse.json({
-      success: true,
-      files: finalFiles,
-      mode,
-      error: generationResult.error,
-    })
   } catch (error) {
     console.error("[v0] Unexpected error in /api/generate/smart:", error)
     return NextResponse.json(
@@ -161,32 +159,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
-
-/**
- * Attempt to fix malformed JSON by adding missing brackets or quotes
- */
-function attemptJSONRepair(text: string): string {
-  let repaired = text.trim()
-
-  // If starts with [ or {, assume it's JSON
-  if (!repaired.startsWith("{") && !repaired.startsWith("[")) {
-    // Try to find JSON object
-    const match = repaired.match(/\{[\s\S]*\}/)
-    if (match) {
-      repaired = match[0]
-    } else {
-      // Wrap in object if needed
-      repaired = `{ "files": [${repaired}] }`
-    }
-  }
-
-  // Try to close unclosed braces
-  const openBraces = (repaired.match(/\{/g) || []).length
-  const closeBraces = (repaired.match(/\}/g) || []).length
-  if (openBraces > closeBraces) {
-    repaired += "}".repeat(openBraces - closeBraces)
-  }
-
-  return repaired
 }

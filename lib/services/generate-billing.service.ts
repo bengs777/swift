@@ -1,8 +1,18 @@
 import { prisma } from "@/lib/db/client"
-import { BillingService } from "@/lib/services/billing.service"
-import type { GenerateSession } from "@/lib/types"
 
-export interface GenerateCostBreakdown {
+interface BalanceCheckResult {
+  hasBalance: boolean
+  currentBalance: number
+  shortfall: number
+}
+
+interface DeductResult {
+  success: boolean
+  error?: string
+  newBalance?: number
+}
+
+interface CostBreakdown {
   provider: string
   model: string
   costPerRequest: number
@@ -12,9 +22,98 @@ export interface GenerateCostBreakdown {
 
 export class GenerateBillingService {
   /**
-   * Get cost breakdown untuk selected model
+   * Check if user has sufficient balance for a generation request
    */
-  static getCostBreakdown(provider: string, model: string): GenerateCostBreakdown {
+  static async checkBalance(userId: string, requiredAmount: number): Promise<BalanceCheckResult> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { balance: true },
+      })
+
+      const currentBalance = user?.balance || 0
+      const hasBalance = currentBalance >= requiredAmount
+
+      return {
+        hasBalance,
+        currentBalance,
+        shortfall: hasBalance ? 0 : requiredAmount - currentBalance,
+      }
+    } catch (error) {
+      console.error("[GenerateBillingService] Error checking balance:", error)
+      return {
+        hasBalance: false,
+        currentBalance: 0,
+        shortfall: requiredAmount,
+      }
+    }
+  }
+
+  /**
+   * Deduct balance from user account for successful generation
+   */
+  static async deductBalance(
+    userId: string,
+    amount: number,
+    description: string,
+    metadata?: Record<string, any>
+  ): Promise<DeductResult> {
+    try {
+      // Check balance first
+      const balanceCheck = await this.checkBalance(userId, amount)
+      if (!balanceCheck.hasBalance) {
+        return {
+          success: false,
+          error: "Insufficient balance",
+        }
+      }
+
+      // Get current user balance
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { balance: true },
+      })
+
+      const currentBalance = user?.balance || 0
+      const newBalance = currentBalance - amount
+
+      // Create billing transaction
+      await prisma.billingTransaction.create({
+        data: {
+          userId,
+          kind: "deduction",
+          direction: "out",
+          amount,
+          balanceBefore: currentBalance,
+          balanceAfter: newBalance,
+          description,
+          metadata: metadata ? JSON.stringify(metadata) : null,
+        },
+      })
+
+      // Update user balance
+      await prisma.user.update({
+        where: { id: userId },
+        data: { balance: newBalance },
+      })
+
+      return {
+        success: true,
+        newBalance,
+      }
+    } catch (error) {
+      console.error("[GenerateBillingService] Error deducting balance:", error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to deduct balance",
+      }
+    }
+  }
+
+  /**
+   * Get cost breakdown for a model/provider combination
+   */
+  static getCostBreakdown(provider: string, model: string): CostBreakdown {
     // V0 provider: 5000 IDR per request
     if (provider === "v0") {
       return {
@@ -26,7 +125,18 @@ export class GenerateBillingService {
       }
     }
 
-    // Default untuk providers lain (bisa dikonfigurasi)
+    // Orchestrator provider: 5000 IDR per request
+    if (provider === "orchestrator") {
+      return {
+        provider: "orchestrator",
+        model: model,
+        costPerRequest: 5000,
+        totalCost: 5000,
+        currency: "IDR",
+      }
+    }
+
+    // Default for other providers
     return {
       provider,
       model,
@@ -37,196 +147,28 @@ export class GenerateBillingService {
   }
 
   /**
-   * Check apakah user punya balance cukup
+   * Log generation usage for tracking and analytics
    */
-  static async checkBalance(userId: string, requiredAmount: number): Promise<{
-    hasBalance: boolean
-    currentBalance: number
-    shortfall?: number
-  }> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { balance: true },
-    })
-
-    if (!user) {
-      return {
-        hasBalance: false,
-        currentBalance: 0,
-        shortfall: requiredAmount,
-      }
-    }
-
-    const hasBalance = user.balance >= requiredAmount
-    return {
-      hasBalance,
-      currentBalance: user.balance,
-      shortfall: hasBalance ? undefined : requiredAmount - user.balance,
-    }
-  }
-
-  /**
-   * Deduct cost dari user balance (charge for generation)
-   */
-  static async deductBalance(
+  static async logUsage(
     userId: string,
-    amount: number,
-    description: string,
+    provider: string,
+    model: string,
+    status: "SUCCESS" | "FAILED",
     metadata?: Record<string, any>
-  ): Promise<{
-    success: boolean
-    newBalance: number
-    error?: string
-  }> {
+  ): Promise<void> {
     try {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { balance: true },
-      })
-
-      if (!user) {
-        return {
-          success: false,
-          newBalance: 0,
-          error: "User not found",
-        }
-      }
-
-      if (user.balance < amount) {
-        return {
-          success: false,
-          newBalance: user.balance,
-          error: `Insufficient balance. Required: Rp ${amount.toLocaleString("id-ID")}, Available: Rp ${user.balance.toLocaleString("id-ID")}`,
-        }
-      }
-
-      // Update balance
-      const updated = await prisma.user.update({
-        where: { id: userId },
+      await prisma.usageLog.create({
         data: {
-          balance: {
-            decrement: amount,
-          },
-        },
-        select: { balance: true },
-      })
-
-      // Log transaction
-      try {
-        await BillingService.logTransaction({
           userId,
-          type: "debit",
-          amount,
-          description,
-          metadata: {
-            ...metadata,
-            source: "generate",
-            timestamp: new Date().toISOString(),
-          },
-        })
-      } catch (error) {
-        console.error("[v0] Failed to log transaction:", error)
-        // Don't fail if logging fails, as balance has already been deducted
-      }
-
-      return {
-        success: true,
-        newBalance: updated.balance,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to deduct balance"
-      return {
-        success: false,
-        newBalance: 0,
-        error: message,
-      }
-    }
-  }
-
-  /**
-   * Refund balance jika generation gagal
-   */
-  static async refundBalance(
-    userId: string,
-    amount: number,
-    reason: string,
-    originalMetadata?: Record<string, any>
-  ): Promise<{
-    success: boolean
-    newBalance: number
-    error?: string
-  }> {
-    try {
-      const updated = await prisma.user.update({
-        where: { id: userId },
-        data: {
-          balance: {
-            increment: amount,
-          },
+          provider,
+          model,
+          status,
+          metadata: metadata ? JSON.stringify(metadata) : null,
         },
-        select: { balance: true },
       })
-
-      // Log refund
-      try {
-        await BillingService.logTransaction({
-          userId,
-          type: "credit",
-          amount,
-          description: `Refund: ${reason}`,
-          metadata: {
-            ...originalMetadata,
-            source: "generate-refund",
-            timestamp: new Date().toISOString(),
-          },
-        })
-      } catch (error) {
-        console.error("[v0] Failed to log refund transaction:", error)
-      }
-
-      return {
-        success: true,
-        newBalance: updated.balance,
-      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to refund balance"
-      return {
-        success: false,
-        newBalance: 0,
-        error: message,
-      }
+      console.error("[GenerateBillingService] Error logging usage:", error)
+      // Silently fail - don't break the flow if logging fails
     }
-  }
-
-  /**
-   * Get generation history dengan cost breakdown
-   */
-  static async getGenerationHistory(userId: string, limit = 50) {
-    // This would integrate with project history table
-    // For now, returning placeholder
-    return {
-      total: 0,
-      history: [],
-    }
-  }
-
-  /**
-   * Get user's balance info
-   */
-  static async getUserBalance(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        balance: true,
-        email: true,
-      },
-    })
-
-    return user ? {
-      userId: user.id,
-      balance: user.balance,
-      email: user.email,
-    } : null
   }
 }
