@@ -2,21 +2,33 @@
 
 ## Overview
 
-Orchestrator is integrated as a code generation AI provider using the **deepseek/deepseek-v4-flash** model. Each generation request costs **5,000 IDR**.
+Orchestrator is an intelligent code generation provider using **OpenRouter API** with the **deepseek/deepseek-v4-flash** model. Each generation request costs **5,000 IDR**.
+
+## How It Works
+
+Orchestrator leverages OpenRouter's infrastructure to access the deepseek/deepseek-v4-flash model. This provides:
+- Reliable, high-performance API endpoints
+- Multi-model support through OpenRouter
+- Proven infrastructure at scale
+- No additional API key needed (uses your existing OpenRouter/OPENAI_API_KEY)
 
 ## Configuration
 
 ### 1. Environment Setup
 
-Add the following environment variable to your `.env.local`:
+Orchestrator uses your existing **OPENAI_API_KEY** configured for OpenRouter:
 
 ```env
-ORCHESTRATOR_API_KEY=your_orchestrator_api_key_here
+# Your OpenRouter API key (used by both OpenAI and Orchestrator)
+OPENAI_API_KEY=your_openrouter_api_key_here
+OPENAI_API_URL=https://openrouter.ai/api/v1
 ```
+
+If you don't have an OpenRouter key yet, get one from: https://openrouter.ai/keys
 
 ### 2. Verify Configuration
 
-The Orchestrator provider will automatically appear in the model selector once the API key is configured.
+The Orchestrator provider will automatically appear in the model selector once your OpenRouter API key is configured and the URL is set to OpenRouter.
 
 ## Usage
 
