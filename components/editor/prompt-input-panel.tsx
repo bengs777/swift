@@ -90,8 +90,8 @@ export function PromptInputPanel({
           </SelectTrigger>
           <SelectContent>
             {modelOptions.map((option) => (
-              <SelectItem key={option.id} value={option.id}>
-                {option.name}
+              <SelectItem key={option.key} value={option.key}>
+                {option.label}
               </SelectItem>
             ))}
           </SelectContent>

@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 })
     }
 
+    const userId = session.user.id as string
+
     const body = (await request.json()) as OrchestratorGenerateRequest
 
     // Validate request
@@ -42,7 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check user balance
-    const balanceCheck = await GenerateBillingService.checkBalance(session.user.id, COST_PER_REQUEST)
+    const balanceCheck = await GenerateBillingService.checkBalance(userId, COST_PER_REQUEST)
 
     if (!balanceCheck.hasBalance) {
       return NextResponse.json(
@@ -64,38 +66,35 @@ export async function POST(request: NextRequest) {
     })
 
     if (!result.success) {
-      // Log failed generation attempt
-      await prisma.billingLog.create({
-        data: {
-          userId: session.user.id,
-          provider: PROVIDER,
-          model: MODEL,
-          costAmount: 0,
-          costCurrency: "IDR",
-          status: "FAILED",
-          projectId: projectId || null,
-          details: result.error || "Generation failed",
-        },
-      }).catch(() => {}) // Silently fail logging
-
       return NextResponse.json(
         { error: result.error || "Failed to generate code with Orchestrator" },
         { status: 502 }
       )
     }
 
-    // Charge user for successful generation
-    const chargeResult = await GenerateBillingService.chargeUser(
-      session.user.id,
+    // Deduct balance for successful generation
+    const chargeResult = await GenerateBillingService.deductBalance(
+      userId,
       COST_PER_REQUEST,
-      PROVIDER,
-      MODEL,
-      projectId
+      `Orchestrator Code Generation - ${mode} mode`,
+      {
+        projectId: projectId || undefined,
+        provider: PROVIDER,
+        model: MODEL,
+        fileCount: result.files?.length || 0,
+        mode: mode,
+      }
     )
 
     if (!chargeResult.success) {
+      console.error("[v0] Failed to deduct balance:", chargeResult.error)
+      // In case of charging failure, we should ideally refund or not complete the transaction
       return NextResponse.json(
-        { error: "Failed to process billing" },
+        {
+          success: false,
+          error: "Generation succeeded but billing failed. Please contact support.",
+          files: result.files || [],
+        },
         { status: 500 }
       )
     }
