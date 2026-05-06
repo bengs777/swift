@@ -4,6 +4,7 @@ import { ModelConfigService } from "@/lib/services/model-config.service"
 import { env } from "@/lib/env"
 import { formatModelLabel, getModelDisplayMeta } from "@/lib/ai/models"
 import { v0Provider } from "@/lib/ai/providers/v0-provider"
+import { orchestratorProvider } from "@/lib/ai/providers/orchestrator-provider"
 
 export async function GET() {
   const session = await auth()
@@ -26,6 +27,10 @@ export async function GET() {
     if (model.provider === "v0") {
       return v0Provider.isConfigured()
     }
+    
+    if (model.provider === "orchestrator") {
+      return orchestratorProvider.isConfigured()
+    }
 
     return false
   }).sort((left, right) => {
@@ -45,6 +50,17 @@ export async function GET() {
     costUnit: "IDR",
   }] : []
 
+  // Add Orchestrator model if configured
+  const orchestratorModels = orchestratorProvider.isConfigured() ? [{
+    key: "orchestrator-deepseek",
+    provider: "orchestrator",
+    modelName: "deepseek/deepseek-v4-flash",
+    active: true,
+    label: "Orchestrator - Deepseek V4 Flash (5000/req)",
+    cost: 5000,
+    costUnit: "IDR",
+  }] : []
+
   return NextResponse.json({
     models: [
       ...availableModels.map((model) => ({
@@ -56,6 +72,7 @@ export async function GET() {
             : formatModelLabel(model.modelName || model.key),
       })),
       ...v0Models,
+      ...orchestratorModels,
     ],
   })
 }

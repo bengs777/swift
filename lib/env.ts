@@ -89,6 +89,7 @@ export const env = {
   agentRouterModels: getEnvList("AGENT_ROUTER_MODELS", "AGENTROUTER_MODELS", "AIBLUESMINDS_FALLBACK_MODELS"),
   agentRouterFallbackModels: getEnvList("AI_FALLBACK_MODELS", "AGENT_ROUTER_FALLBACK_MODELS", "AGENTROUTER_FALLBACK_MODELS"),
   v0ApiKey: getEnv("V0_API_KEY"),
+  orchestratorApiKey: getEnv("ORCHESTRATOR_API_KEY"),
   openAiApiKey: getEnv("OPENAI_API_KEY"),
   openAiApiUrl: getEnv("OPENAI_API_URL") || "https://openrouter.ai/api/v1",
   openAiDefaultModel: OPENAI_DEFAULT_MODEL,

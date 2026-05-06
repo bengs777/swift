@@ -26,6 +26,17 @@ export class GenerateBillingService {
       }
     }
 
+    // Orchestrator provider: 5000 IDR per request
+    if (provider === "orchestrator") {
+      return {
+        provider: "orchestrator",
+        model: model,
+        costPerRequest: 5000,
+        totalCost: 5000,
+        currency: "IDR",
+      }
+    }
+
     // Default untuk providers lain (bisa dikonfigurasi)
     return {
       provider,
