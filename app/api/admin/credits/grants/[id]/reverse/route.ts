@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/db/client"
-import { env } from "@/lib/env"
 import { CreditGrantService, type CreditGrantRecord } from "@/lib/services/credit-grant.service"
+import { getEnv } from "@/lib/env"
+
+// Skip static generation for dynamic admin routes
+export const dynamic = "force-dynamic"
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
 
@@ -41,7 +44,8 @@ async function requireDeveloperTreasuryActor() {
   }
 
   const sessionEmail = normalizeEmail(session.user.email)
-  if (sessionEmail !== normalizeEmail(env.devOwnerEmail)) {
+  const devOwnerEmail = getEnv("DEV_OWNER_EMAIL")
+  if (!devOwnerEmail || sessionEmail !== normalizeEmail(devOwnerEmail)) {
     return { error: NextResponse.json({ error: "Developer access required" }, { status: 403 }) }
   }
 

@@ -154,16 +154,32 @@ export class GenerateBillingService {
     provider: string,
     model: string,
     status: "SUCCESS" | "FAILED",
-    metadata?: Record<string, any>
+    errorMessage?: string
   ): Promise<void> {
     try {
+      // Find a model config that matches the provider and model
+      const modelConfig = await prisma.modelConfig.findFirst({
+        where: {
+          provider,
+          modelName: model,
+        },
+      })
+
+      if (!modelConfig) {
+        console.warn("[GenerateBillingService] No model config found for", { provider, model })
+        return
+      }
+
       await prisma.usageLog.create({
         data: {
           userId,
           provider,
           model,
           status,
-          metadata: metadata ? JSON.stringify(metadata) : null,
+          modelConfigId: modelConfig.id,
+          cost: 0, // Will be set by billing operations
+          prompt: "", // Not tracking full prompt in logs
+          errorMessage: errorMessage || undefined,
         },
       })
     } catch (error) {
